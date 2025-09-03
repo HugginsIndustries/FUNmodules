@@ -1,31 +1,62 @@
-# Ignore all dotfiles except git & VS Code dotfiles
+# -----------------------------
+# Dotfiles: ignore all by default…
+# -----------------------------
 .*
+# …but keep core project dotfolders/files:
 !.git*
 !.vscode/
+!.github/
+!.env.example   # document env vars; see .env below
 
-# Binaries and build targets
-*.a
-/dep
+# -----------------------------
+# VS Code: keep portable config, ignore caches
+# -----------------------------
+.vscode/*
+!.vscode/tasks.json
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+# Known noisy caches from extensions
+.vscode/ipch/
+.vscode/**/binaries/
+.vscode/**/browse.*
+.vscode/**/targets
 
-# Build outputs
+# Local environment (user/machine specific)
+.env
+
+# -----------------------------
+# Build outputs & artifacts
+# -----------------------------
 /build/
 /dist/
-/plugin.*.map
-/*.exp
-/*.lib
-/*.pdb
-/*.ilk
+plugin.*.map
 
-# Platform libs
-/*.dll
-/*.so
-/*.dylib
+# Linker/obj/debug cruft (anywhere)
+*.exp
+*.lib
+*.pdb
+*.ilk
+*.obj
 
+# Platform libs/binaries (anywhere)
+*.dll
+*.so
+*.dylib
+*.exe
+
+# -----------------------------
 # Editor / OS noise
+# -----------------------------
 .DS_Store
 Thumbs.db
 
-# Don’t commit installed copies or SDKs
+# -----------------------------
+# Don’t commit SDKs or installed trees
+# -----------------------------
 Rack-SDK/
 Rack-SDK-*/
 plugins-*/
+
+# If you ever vendor dependencies here, ignore the cache:
+# /dep/

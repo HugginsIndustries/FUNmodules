@@ -5,9 +5,9 @@
     "env": {
       "MSYSTEM": "MINGW64",
       "CHERE_INVOKING": "1",
-      "RACK_DIR": "/c/dev/Rack-SDK",
-      "RACK_SDK": "/c/dev/Rack-SDK",
-      "RACK_USER_DIR": "/c/Users/Christian/AppData/Local/Rack2"
+      "RACK_DIR": "${env:RACK_SDK}",
+      "RACK_SDK": "${env:RACK_SDK}",
+      "RACK_USER_DIR": "${env:RACK_USER_DIR}"
     },
     "shell": {
       "executable": "C:\\msys64\\usr\\bin\\bash.exe",
@@ -43,42 +43,55 @@
       "label": "Generate module.cpp from SVG",
       "type": "shell",
       "command": "python3 \"$RACK_SDK/helper.py\" createmodule ${input:ModuleName} res/${input:ModuleName}.svg src/${input:ModuleName}.cpp",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
+      "options": { "cwd": "${workspaceFolder}" },
       "detail": "Generate src/<name>.cpp from res/<name>.svg"
     },
     {
       "label": "Run VCV Rack",
       "type": "shell",
-      "command": "\"/c/Program Files/VCV/Rack2Free/Rack.exe\"",
-      "detail": "Launch Rack (change path if using Pro/Studio)"
+      "command": "\"${env:RACK_EXE}\"",
+      "detail": "Launch Rack (set RACK_EXE env var to your Rack.exe path)"
     },
     {
       "label": "Build & Install",
       "dependsOn": ["Build", "Install"],
       "dependsOrder": "sequence",
       "group": { "kind": "build" },
-      "detail": "Build the plugin then install it to your Rack2 user directory"
+      "detail": "Build then install"
     },
     {
       "label": "Clean → Build & Install",
       "dependsOn": ["Clean", "Build", "Install"],
       "dependsOrder": "sequence",
       "group": { "kind": "build", "isDefault": true },
-      "detail": "Clean, compile, then install to $RACK_USER_DIR"
+      "detail": "Clean, compile, then install"
     },
     {
       "label": "Generate → Build & Install",
       "dependsOn": ["Generate module.cpp from SVG", "Build & Install"],
       "dependsOrder": "sequence",
-      "detail": "Create module.cpp from SVG, then build and install"
+      "detail": "Create module.cpp, build, install"
     },
     {
       "label": "Build → Install → Run",
       "dependsOn": ["Build", "Install", "Run VCV Rack"],
       "dependsOrder": "sequence",
       "detail": "Build, install, then launch Rack"
+    },
+
+    /* -------------- Git helpers -------------- */
+
+    {
+      "label": "Git: Commit + Push (prompt)",
+      "type": "shell",
+      "command": "git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo 'Not a git repo'; exit 1; }; MSG='${input:commitMsg}'; if [ -z \"$MSG\" ]; then MSG=\"chore: save $(date -u +%Y-%m-%dT%H:%M:%SZ)\"; fi; if git diff --quiet && git diff --cached --quiet; then echo 'No changes to commit'; else git add -A && git commit -m \"$MSG\"; fi; git push -u origin main",
+      "problemMatcher": []
+    },
+    {
+      "label": "Git: Quick Commit + Push",
+      "type": "shell",
+      "command": "git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo 'Not a git repo'; exit 1; }; MSG=\"chore: save $(date -u +%Y-%m-%dT%H:%M:%SZ)\"; if git diff --quiet && git diff --cached --quiet; then echo 'No changes to commit'; else git add -A && git commit -m \"$MSG\"; fi; git push -u origin main",
+      "problemMatcher": []
     }
   ],
   "inputs": [
@@ -87,6 +100,12 @@
       "type": "promptString",
       "description": "Module name (expects res/<name>.svg)",
       "default": "TestModule"
+    },
+    {
+      "id": "commitMsg",
+      "type": "promptString",
+      "description": "Commit message (blank → auto timestamp)",
+      "default": ""
     }
   ]
 }

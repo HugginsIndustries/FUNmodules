@@ -1,0 +1,8 @@
+{
+  "recommendations": [
+    "ms-vscode.cpptools",         // C/C++ IntelliSense
+    "ms-vscode.makefile-tools",   // Parses Makefile & wires IntelliSense
+    "eamodio.gitlens",            // Better git blame/history
+    "mikestead.dotenv"            // Highlights .env files
+  ]
+}
