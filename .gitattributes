@@ -1,0 +1,18 @@
+# Normalize text files; checkout native EOL per OS
+* text=auto
+
+# Force LF for build scripts (Make hates CRLF)
+*.mk      text eol=lf
+Makefile  text eol=lf
+*.sh      text eol=lf
+
+# SVGs are text; keep them diffable
+*.svg     text eol=lf
+
+# Binary files: no diffs
+*.png     binary
+
+# Friendlier diffs for C/C++
+*.cpp     diff=cpp
+*.hpp     diff=cpp
+*.h       diff=cpp

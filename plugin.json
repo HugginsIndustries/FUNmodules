@@ -1,0 +1,34 @@
+{
+  "slug": "MyPlugin",
+  "name": "My Plugin",
+  "version": "2.0.0",
+  "license": "GPL-3.0-or-later",
+  "brand": "HugginsIndustries",
+  "author": "Christian Huggins",
+  "authorEmail": "hugginsindustry@gmail.com",
+  "authorUrl": "",
+  "pluginUrl": "",
+  "manualUrl": "",
+  "sourceUrl": "",
+  "donateUrl": "",
+  "changelogUrl": "",
+  "modules": [
+    {
+      "slug": "Offset",
+      "name": "Offset",
+      "description": "just a test :)",
+      "tags": [
+        "Utility"
+      ]
+    },
+    {
+      "slug": "PolySlewOffset16",
+      "name": "PolySlewOffset16",
+      "description": "16-channel per-voice slew limiter with per-voice DC offset and meters",
+      "tags": [
+        "Utility",
+        "Polyphonic"
+      ]
+    }
+  ]
+}

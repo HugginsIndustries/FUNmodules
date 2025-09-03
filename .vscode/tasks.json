@@ -1,0 +1,92 @@
+{
+  "version": "2.0.0",
+  "options": {
+    "cwd": "${workspaceFolder}",
+    "env": {
+      "MSYSTEM": "MINGW64",
+      "CHERE_INVOKING": "1",
+      "RACK_DIR": "/c/dev/Rack-SDK",
+      "RACK_SDK": "/c/dev/Rack-SDK",
+      "RACK_USER_DIR": "/c/Users/Christian/AppData/Local/Rack2"
+    },
+    "shell": {
+      "executable": "C:\\msys64\\usr\\bin\\bash.exe",
+      "args": ["-lc"]
+    }
+  },
+  "tasks": [
+    {
+      "label": "Build",
+      "type": "shell",
+      "command": "make",
+      "args": ["-j$(nproc)"],
+      "problemMatcher": ["$gcc"],
+      "detail": "Build plugin with MSYS2 MinGW-w64 toolchain"
+    },
+    {
+      "label": "Install",
+      "type": "shell",
+      "command": "make",
+      "args": ["install"],
+      "problemMatcher": ["$gcc"],
+      "detail": "Install to $RACK_USER_DIR/plugins"
+    },
+    {
+      "label": "Clean",
+      "type": "shell",
+      "command": "make",
+      "args": ["clean"],
+      "problemMatcher": ["$gcc"],
+      "detail": "Remove build artifacts"
+    },
+    {
+      "label": "Generate module.cpp from SVG",
+      "type": "shell",
+      "command": "python3 \"$RACK_SDK/helper.py\" createmodule ${input:ModuleName} res/${input:ModuleName}.svg src/${input:ModuleName}.cpp",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "detail": "Generate src/<name>.cpp from res/<name>.svg"
+    },
+    {
+      "label": "Run VCV Rack",
+      "type": "shell",
+      "command": "\"/c/Program Files/VCV/Rack2Free/Rack.exe\"",
+      "detail": "Launch Rack (change path if using Pro/Studio)"
+    },
+    {
+      "label": "Build & Install",
+      "dependsOn": ["Build", "Install"],
+      "dependsOrder": "sequence",
+      "group": { "kind": "build" },
+      "detail": "Build the plugin then install it to your Rack2 user directory"
+    },
+    {
+      "label": "Clean → Build & Install",
+      "dependsOn": ["Clean", "Build", "Install"],
+      "dependsOrder": "sequence",
+      "group": { "kind": "build", "isDefault": true },
+      "detail": "Clean, compile, then install to $RACK_USER_DIR"
+    },
+    {
+      "label": "Generate → Build & Install",
+      "dependsOn": ["Generate module.cpp from SVG", "Build & Install"],
+      "dependsOrder": "sequence",
+      "detail": "Create module.cpp from SVG, then build and install"
+    },
+    {
+      "label": "Build → Install → Run",
+      "dependsOn": ["Build", "Install", "Run VCV Rack"],
+      "dependsOrder": "sequence",
+      "detail": "Build, install, then launch Rack"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "ModuleName",
+      "type": "promptString",
+      "description": "Module name (expects res/<name>.svg)",
+      "default": "TestModule"
+    }
+  ]
+}

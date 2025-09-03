@@ -1,0 +1,31 @@
+# Ignore all dotfiles except git & VS Code dotfiles
+.*
+!.git*
+!.vscode/
+
+# Binaries and build targets
+*.a
+/dep
+
+# Build outputs
+/build/
+/dist/
+/plugin.*.map
+/*.exp
+/*.lib
+/*.pdb
+/*.ilk
+
+# Platform libs
+/*.dll
+/*.so
+/*.dylib
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+
+# Don’t commit installed copies or SDKs
+Rack-SDK/
+Rack-SDK-*/
+plugins-*/
