@@ -2099,48 +2099,54 @@ struct PolyQuantaWidget : ModuleWidget {
             sm->addChild(rack::createCheckMenuItem("EDO (octave)", "", [m]{ return m->tuningMode==0; }, [m]{ m->tuningMode=0; }));
             sm->addChild(rack::createCheckMenuItem("TET (non-octave)", "", [m]{ return m->tuningMode==1; }, [m]{ m->tuningMode=1; }));
         }));
-        // EDO selection: curated quick picks with descriptions + full range navigator
+    // EDO selection: curated quick picks with descriptions + full range navigator (labels show cents/step)
         menu->addChild(rack::createSubmenuItem("EDO", "", [m](rack::ui::Menu* sm){
             struct Quick { int edo; const char* desc; };
             static const Quick quicks[] = {
-                {5,  "Equal pentatonic; wide, consonant steps"},
-                {6,  "Whole‑tone grid; dreamy, ambiguous harmony"},
-                {7,  "Neutral diatonic; singable in‑between thirds"},
-                {8,  "Symmetric/diminished flavor; crunchy colors"},
-                {9,  "Neutral intervals + edgy fifths; xenharmonic"},
-                {10, "Spacious arithmetic; broad fifth analogue"},
-                {11, "Neutral 2nds/3rds; surprisingly consonant"},
-                {12, "Baseline tonal workflow & compatibility"},
-                {13, "Blackwood: coherent yet alien triads"},
-                {16, "Even binary grid; symmetric progressions"},
-                {17, "Alt to 12: bright minor / soft major"},
-                {18, "Third‑tone palette; glide friendly"},
-                {19, "Meantone‑like; strong fifths & triads"},
-                {20, "60‑cent control; hybrid diatonic sets"},
-                {22, "Porcupine playground; crunchy chords"},
-                {24, "Quarter‑tone classic; bends & nuance"},
-                {26, "Blackwood sweet spot; flexible modes"},
-                {31, "Huygens/Fokker; 5‑limit accuracy"},
-                {34, "Finer meantone‑adjacent than 17"},
-                {36, "Dense third‑tone (3×12) inflection"},
-                {38, "Double‑19 precision; diatonic logic"},
-                {41, "Strong 7‑limit approximations"},
-                {43, "Near Partch 43 flavor, still equal"},
-                {48, "Eighth‑tones; ornaments over 12/24"},
-                {50, "20‑cent steps; 5 sub‑steps/semitone"},
-                {53, "Near‑JI (5/7‑limit) workhorse"},
-                {55, "Rich 5/11‑limit colors; divisible"},
-                {60, "12 with 5 micro‑steps per semitone"},
-                {64, "Power‑of‑two grid; precise labs"},
-                {72, "Sixth‑tone workhorse 12/24/36"},
-                {96, "Twelfth‑tone (~12.5¢) resolution"},
-                {120,"Ten‑cent fine design & rescaling"}
+                {5,  "Equal pentatonic; spacious, open."},
+                {6,  "Whole-tone planing; dreamy."},
+                {7,  "“Neutral diatonic” with singable modes."},
+                {8,  "Symmetric; tritone center."},
+                {9,  "Neutral chain; edgy fifths."},
+                {10, "Wide-step palette; broad fifth analogue."},
+                {11, "Neutral 2nds/3rds; distinctive color."},
+                {12, "Baseline tonal workflow & compatibility."},
+                {13, "Blackwood flavor; coherent alien triads."},
+                {14, "Slightly finer than 12; softened fifths."},
+                {16, "Binary grid; symmetric flows."},
+                {17, "Alt to 12; bright minor/soft major."},
+                {18, "Third-tone palette ideal for expressive slides."},
+                {19, "Meantone-like diatonicism; strong fifths."},
+                {20, "Hybrid diatonic/symmetric design."},
+                {22, "Porcupine temperament; crunchy chords."},
+                {24, "Quarter-tone classic; bends & nuance."},
+                {25, "Mid-resolution microtonal; pairs with 50."},
+                {26, "Blackwood sweet spot; flexible modes."},
+                {31, "Huygens/Fokker; elegant 5-limit control."},
+                {34, "Tighter 17-EDO lattice variant."},
+                {36, "Sixth-tone system; dense inflection."},
+                {38, "Double-19; added precision."},
+                {41, "Strong 7-limit approximations."},
+                {43, "Partch-like color while equal."},
+                {44, "Double-22; finer porcupine grain."},
+                {48, "Eighth-tone; nests with 12/24."},
+                {50, "Fine control; halves of 25-EDO."},
+                {52, "Double-26; smoother stepwork."},
+                {53, "Near-JI accuracy; 5/7-limit hero."},
+                {55, "Divisible by 5 & 11; limit color sets."},
+                {60, "Five per semitone; consistent micro-bends."},
+                {62, "Double-31; precise meantone family."},
+                {64, "Power-of-two grid; precise experiments."},
+                {72, "Twelfth-tone system; embeds 12/24/36."},
+                {96, "Sixteenth-tone; detailed retuning."},
+                {120, "Ultra-fine granularity; easy rescaling."}
             };
             sm->addChild(rack::createMenuLabel("Quick picks"));
             for (const auto& q : quicks) {
                 int e = q.edo;
+                float cents = 1200.f / (float)e;
                 sm->addChild(rack::createCheckMenuItem(
-                    rack::string::f("%d-EDO", e), q.desc,
+                    rack::string::f("%d-EDO (%.2f¢)", e, cents), q.desc,
                     [m,e]{ return m->tuningMode==0 && m->edo==e; },
                     [m,e]{ m->tuningMode=0; m->edo=e; m->rootNote%=e; }
                 ));
@@ -2149,8 +2155,9 @@ struct PolyQuantaWidget : ModuleWidget {
             sm->addChild(rack::createMenuLabel("N-EDO"));
             auto addRange = [m](rack::ui::Menu* dst, int a, int b){
                 for (int e = a; e <= b; ++e) {
+                    float cents = 1200.f / (float)e;
                     dst->addChild(rack::createCheckMenuItem(
-                        rack::string::f("%d-EDO", e), "",
+                        rack::string::f("%d-EDO (%.2f¢)", e, cents), "",
                         [m,e]{ return m->tuningMode==0 && m->edo==e; },
                         [m,e]{ m->tuningMode=0; m->edo=e; m->rootNote%=e; }
                     ));
