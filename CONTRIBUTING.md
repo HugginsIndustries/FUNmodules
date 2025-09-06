@@ -1,6 +1,6 @@
 # Contributing
 
-Welcome! This repo contains **VCV Rack 2** modules by **HugginsIndustries**. The goal: keep setup simple, builds reproducible, and contributions easy.
+Welcome! This repo contains **FUN** modules by **HugginsIndustries**. The goal: have fun.
 
 ## TL;DR (Windows + MSYS2)
 

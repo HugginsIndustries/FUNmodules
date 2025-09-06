@@ -1,4 +1,4 @@
-# HugginsIndustries VCV Rack Modules
+# HugginsIndustries FUN modules for VCV Rack
 
 Experimental modules for VCV Rack 2.
 

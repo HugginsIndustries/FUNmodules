@@ -1,6 +1,6 @@
 {
-  "slug": "MyPlugin",
-  "name": "My Plugin",
+  "slug": "FUNmodules",
+  "name": "FUN modules",
   "version": "2.0.0",
   "license": "GPL-3.0-or-later",
   "brand": "HugginsIndustries",
@@ -22,12 +22,15 @@
       ]
     },
     {
-      "slug": "PolySlewOffset16",
-      "name": "PolySlewOffset16",
-      "description": "16-channel per-voice slew limiter with per-voice DC offset and meters",
+      "slug": "PolyQuanta",
+      "name": "PolyQuanta",
+      "description": "16-channel polyphonic slew/glide processor with offset and quantization",
       "tags": [
         "Utility",
-        "Polyphonic"
+        "Polyphonic",
+        "Slew limiter",
+        "Random",
+        "Quantizer"
       ]
     }
   ]

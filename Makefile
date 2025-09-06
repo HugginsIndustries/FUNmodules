@@ -10,8 +10,9 @@ CXXFLAGS +=
 # Static libraries are fine, but they should be added to this plugin's build system.
 LDFLAGS +=
 
-# Add .cpp files to the build
+# Add .cpp files to the build (exclude legacy duplicate file)
 SOURCES += $(wildcard src/*.cpp)
+SOURCES := $(filter-out src/PolySlewOffset16.cpp,$(SOURCES))
 
 # Add files to the ZIP package when running `make dist`
 # The compiled plugin and "plugin.json" are automatically added.

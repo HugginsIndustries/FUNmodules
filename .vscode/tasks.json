@@ -19,68 +19,82 @@
       "label": "Build",
       "type": "shell",
       "command": "make",
-      "args": ["-j$(nproc)"],
-      "problemMatcher": ["$gcc"],
+      "args": [
+        "-j$(nproc)"
+      ],
+      "problemMatcher": [
+        "$gcc"
+      ],
       "detail": "Build plugin with MSYS2 MinGW-w64 toolchain"
     },
     {
       "label": "Install",
       "type": "shell",
       "command": "make",
-      "args": ["install"],
-      "problemMatcher": ["$gcc"],
+      "args": [
+        "install"
+      ],
+      "problemMatcher": [
+        "$gcc"
+      ],
       "detail": "Install to $RACK_USER_DIR/plugins"
     },
     {
       "label": "Clean",
       "type": "shell",
       "command": "make",
-      "args": ["clean"],
-      "problemMatcher": ["$gcc"],
+      "args": [
+        "clean"
+      ],
+      "problemMatcher": [
+        "$gcc"
+      ],
       "detail": "Remove build artifacts"
     },
     {
       "label": "Generate module.cpp from SVG",
       "type": "shell",
       "command": "python3 \"$RACK_SDK/helper.py\" createmodule ${input:ModuleName} res/${input:ModuleName}.svg src/${input:ModuleName}.cpp",
-      "options": { "cwd": "${workspaceFolder}" },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
       "detail": "Generate src/<name>.cpp from res/<name>.svg"
     },
     {
-      "label": "Run VCV Rack",
-      "type": "shell",
-      "command": "\"${env:RACK_EXE}\"",
-      "detail": "Launch Rack (set RACK_EXE env var to your Rack.exe path)"
-    },
-    {
       "label": "Build & Install",
-      "dependsOn": ["Build", "Install"],
+      "dependsOn": [
+        "Build",
+        "Install"
+      ],
       "dependsOrder": "sequence",
-      "group": { "kind": "build" },
+      "group": {
+        "kind": "build"
+      },
       "detail": "Build then install"
     },
     {
       "label": "Clean → Build & Install",
-      "dependsOn": ["Clean", "Build", "Install"],
+      "dependsOn": [
+        "Clean",
+        "Build",
+        "Install"
+      ],
       "dependsOrder": "sequence",
-      "group": { "kind": "build", "isDefault": true },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
       "detail": "Clean, compile, then install"
     },
     {
       "label": "Generate → Build & Install",
-      "dependsOn": ["Generate module.cpp from SVG", "Build & Install"],
+      "dependsOn": [
+        "Generate module.cpp from SVG",
+        "Build & Install"
+      ],
       "dependsOrder": "sequence",
       "detail": "Create module.cpp, build, install"
     },
-    {
-      "label": "Build → Install → Run",
-      "dependsOn": ["Build", "Install", "Run VCV Rack"],
-      "dependsOrder": "sequence",
-      "detail": "Build, install, then launch Rack"
-    },
-
-    /* -------------- Git helpers -------------- */
-
     {
       "label": "Git: Commit + Push (prompt)",
       "type": "shell",
