@@ -43,11 +43,39 @@
 #include <cctype>
 #include <limits>
 #include <fstream>
+#include <unordered_set>
+#include <set>
+#include <map>
 #include <cmath>
 #include <vector>
 #include <string>
 #include <algorithm>
 #include <cstdint>
+
+// Forward declare module class for MOS helpers (incomplete type ok for prototypes)
+class PolyQuanta; // defined later in this file
+// --- MOS (Moment of Symmetry) helpers (definitions that don't need PolyQuanta) ---------
+namespace hi { namespace music { namespace mos {
+    static const std::map<int, std::vector<int>> curated = {
+        {5,{3,5}}, {6,{3,4,6}}, {7,{5,7}}, {8,{4,6,8}}, {9,{5,7,9}}, {10,{5,7,8,10}}, {11,{5,7,9,11}},
+        {12,{5,7,8,6}}, {13,{7,9,11,13}}, {14,{7,9,12}}, {16,{5,7,8,10}}, {17,{5,7,9,10}}, {18,{5,6,9,12}},
+        {19,{7,9,10}}, {20,{5,8,10,12}}, {22,{7,9,11}}, {24,{5,6,7,8}}, {25,{5,8,10,12}}, {26,{7,9,11}},
+        {31,{7,9,11}}, {34,{7,9,12}}, {36,{6,9,12}}, {38,{7,9,12}}, {41,{7,9,11}}, {43,{7,9,11,13}},
+        {44,{9,11,13}}, {48,{6,8,12,16}}, {50,{5,8,10,12}}, {52,{7,9,13}}, {53,{7,9,11,13}}, {60,{5,6,10,12}},
+        {62,{7,9,12}}, {64,{7,8,12,16}}, {72,{6,8,9,12,18}}, {96,{8,12,16,24}}, {120,{10,12,15,20}}
+    };
+    static int gcdInt(int a, int b){ while(b){ int t=a%b; a=b; b=t;} return a<0?-a:a; }
+    static std::vector<int> generateCycle(int N, int g, int m){ std::vector<int> pcs; pcs.reserve(m); std::unordered_set<int> seen; for(int k=0;k<m;++k){ int v=((long long)k*g)%N; if(seen.insert(v).second) pcs.push_back(v); else break; } std::sort(pcs.begin(),pcs.end()); return pcs; }
+    static bool isMOS(const std::vector<int>& pcs, int N){ if(pcs.size()<2) return false; std::set<int> steps; for(size_t i=0;i<pcs.size();++i){ int a=pcs[i]; int b=pcs[(i+1)%pcs.size()]; int step=(i+1<pcs.size()? b-a : (N-a+b)); if(step<=0) step+=N; steps.insert(step); if(steps.size()>2) return false; } return true; }
+    static std::pair<int,float> stepBalanceScore(const std::vector<int>& pcs, int N){ std::map<int,int> freq; int m=(int)pcs.size(); for(int i=0;i<m;++i){ int a=pcs[i]; int b=pcs[(i+1)%m]; int step=(i+1<m? b-a : (N-a+b)); if(step<=0) step+=N; freq[step]++; } if(freq.size()==1) return {0,0.f}; if(freq.size()==2){ auto it=freq.begin(); int c1=it->second; ++it; int c2=it->second; return {std::abs(c1-c2),0.f}; } return {1000,0.f}; }
+    static int findBestGenerator(int N, int m){ if(m<2) return 1; if(m>N) m=N; struct Cand{int g; int diff; float dist;} best{0,INT_MAX,1e9f}; for(int g=1; g<N; ++g){ if(gcdInt(g,N)!=1) continue; auto cyc=generateCycle(N,g,m); if((int)cyc.size()!=m) continue; if(!isMOS(cyc,N)) continue; auto bal=stepBalanceScore(cyc,N); int diff=bal.first; float gn=(float)g/N; float dist=std::min(std::fabs(gn-7.f/12.f), std::fabs(gn-3.f/12.f)); if(diff<best.diff || (diff==best.diff && dist<best.dist)) best={g,diff,dist}; } if(best.g) return best.g; int cand[2]={ std::max(1,std::min(N-1,(int)std::lround(N*7.0/12.0))), std::max(1,std::min(N-1,(int)std::lround(N*3.0/12.0))) }; for(int g: cand){ if(gcdInt(g,N)!=1) continue; auto cyc=generateCycle(N,g,m); if((int)cyc.size()==m) return g; } return 1; }
+    static std::string patternLS(const std::vector<int>& pcs, int N){ if(pcs.size()<2) return ""; std::vector<int> steps; for(size_t i=0;i<pcs.size();++i){ int a=pcs[i]; int b=pcs[(i+1)%pcs.size()]; int step=(i+1<pcs.size()? b-a : (N-a+b)); if(step<=0) step+=N; steps.push_back(step);} int mn=*std::min_element(steps.begin(),steps.end()); int mx=*std::max_element(steps.begin(),steps.end()); std::string out; out.reserve(steps.size()); for(int s:steps) out.push_back((mx!=mn && s==mx)?'L':'S'); return out; }
+    // Prototypes needing full PolyQuanta definition
+    void buildMaskFromCycle(PolyQuanta* mod, int N, const std::vector<int>& pcs, bool followsRoot);
+    bool detectCurrentMOS(PolyQuanta* mod, int& mOut, int& gOut);
+} } }
+
+
 
 // -----------------------------------------------------------------------------
 // Inlined helpers
@@ -304,6 +332,7 @@ struct ShapeQuantity : rack::engine::ParamQuantity {
 };
 }} // namespace hi::ui
 
+
 namespace hi { namespace ui {
 struct SemitoneVoltQuantity : rack::engine::ParamQuantity {
     const int* quantizeOffsetModePtr = nullptr; // 1=semitones, 2=cents
@@ -504,6 +533,8 @@ using namespace hi::dsp::polytrans;
 */
 // Forward declaration for OffsetQuantity dynamic_cast
 struct PolyQuanta;
+// (Auto-randomize ParamQuantities are defined locally in constructor to allow
+// access to full PolyQuanta type without separate forward dependency.)
 
 // Keep a minimal alias for legacy name but back it by shared SemitoneVoltQuantity
 struct OffsetQuantity : hi::ui::SemitoneVoltQuantity {};
@@ -536,11 +567,16 @@ struct PolyQuanta : Module {
         QZ13_PARAM, QZ14_PARAM, QZ15_PARAM, QZ16_PARAM,
     RISE_SHAPE_PARAM,
         FALL_SHAPE_PARAM,
-        RND_PARAM,
+    RND_PARAM,
+    // Auto-randomize controls
+    RND_TIME_PARAM,
+    RND_AMT_PARAM,
+    RND_AUTO_PARAM,
+    RND_SYNC_PARAM,
     GLOBAL_SLEW_PARAM,
     GLOBAL_SLEW_MODE_PARAM,   // 0=Slew add (time), 1=Attenuverter (gain)
     GLOBAL_OFFSET_PARAM,
-    GLOBAL_OFFSET_MODE_PARAM, // 0=Global offset, 1=Range offset (center)
+    GLOBAL_OFFSET_MODE_PARAM, // 0=Global offset, 1=Range offset
         PARAMS_LEN
     };
     enum InputId { IN_INPUT, RND_TRIG_INPUT, INPUTS_LEN  };
@@ -635,12 +671,76 @@ struct PolyQuanta : Module {
     // 0/1 flag per degree; used when tuning uses N other than 12 or 24.
     std::vector<uint8_t> customMaskGeneric;
 
+    // MOS detection cache (UI only; avoids recomputation when menu opened repeatedly)
+    struct MOSCache {
+        bool     valid       = false; // cache populated
+        bool     found       = false; // did we detect a MOS previously
+        int      N           = 0;     // divisions (edo or tetSteps)
+        int      m           = 0;     // MOS size
+        int      g           = 0;     // MOS generator
+        int      tuningMode  = 0;     // 0=EDO 1=TET
+        int      edo         = 0;
+        int      tetSteps    = 0;
+        int      rootNote    = 0;
+        bool     useCustom   = false;
+        bool     followsRoot = false;
+        uint64_t maskHash    = 0;     // fingerprint of scale mask + mode bits
+    } mosCache;
+
+    void invalidateMOSCache() { mosCache.valid = false; }
+    // Stable fingerprint for active mask (when useCustomScale). Includes bits + flags.
+    uint64_t hashMask(int N) const {
+        uint64_t h = 1469598103934665603ull; // FNV-1a basis
+        auto fnv1a = [&h](uint64_t v){ h ^= v; h *= 1099511628211ull; };
+        fnv1a((uint64_t)N);
+        fnv1a((uint64_t)useCustomScale);
+        fnv1a((uint64_t)customScaleFollowsRoot);
+        fnv1a((uint64_t)rootNote);
+        if (!useCustomScale) {
+            fnv1a(0xFFFFFFFFull);
+            return h;
+        }
+        if (N==12) {
+            fnv1a((uint64_t)customMask12);
+        } else if (N==24) {
+            fnv1a((uint64_t)customMask24);
+        } else {
+            size_t len = customMaskGeneric.size();
+            for(size_t i=0;i<std::min<size_t>(len,(size_t)N);++i) fnv1a((uint64_t)(customMaskGeneric[i]&1));
+            fnv1a((uint64_t)len);
+        }
+        return h;
+    }
+
     // Randomize scope options
     bool randSlew = true;
     bool randOffset = true;
     bool randShapes = true;
     // Max randomize delta as fraction of full control range (0.1..1.0)
     float randMaxPct = 1.f;
+    // Auto-randomize state (timed / clocked)
+    bool rndAutoEnabled = false;      // cached from RND_AUTO_PARAM
+    bool rndSyncMode = false;         // cached from RND_SYNC_PARAM (true = Sync/clock mode, false = Trig/free time)
+    dsp::SchmittTrigger rndClockTrig; // separate trigger for measuring external clock (does not itself randomize)
+    float rndTimerSec = 0.f;          // accumulator for next scheduled randomize (free mode)
+    float rndClockPeriodSec = -1.f;   // smoothed measured clock period
+    float rndClockLastEdge = -1.f;    // last rising edge absolute time
+    bool  rndClockReady = false;      // at least two edges measured
+    float rndAbsTimeSec = 0.f;        // running absolute time for edge timing
+    // Per-mode raw knob memory (so switching modes recalls last position)
+    float rndTimeRawFree = 0.5f;      // free (Trig) mode raw 0..1
+    float rndTimeRawSync = 0.5f;      // sync (clock) mode raw 0..1
+    float rndTimeRawLoaded = 0.5f;    // legacy single stored value
+    bool  prevRndSyncMode = false;    // detect mode changes
+    float rndNextFireTime = -1.f;     // absolute time of next scheduled randomize (sync mode)
+    // Divider / Multiplier scheduling (sync mode)
+    int   rndDivCounter = 0;          // counts incoming edges for division
+    int   rndCurrentDivide = 1;       // active division factor (>1 when dividing)
+    int   rndCurrentMultiply = 1;     // active multiplication factor (>1 when multiplying)
+    int   rndMulIndex = 0;            // next subdivision index (0..rndCurrentMultiply-1)
+    float rndMulBaseTime = -1.f;      // edge time anchoring current multiplication window
+    float rndMulNextTime = -1.f;      // next scheduled subdivision time (absolute seconds)
+    int   rndPrevRatioIdx = -1;       // detect knob ratio changes to reset phase
 
     // Per-control randomize locks
     bool lockSlew[16] = {false};
@@ -876,6 +976,90 @@ struct PolyQuanta : Module {
         configBypass(IN_INPUT, OUT_OUTPUT);
         // Momentary button (edge-detected in process)
         configParam(RND_PARAM, 0.f, 1.f, 0.f, "Randomize");
+    // Auto-randomize ParamQuantities (local structs so PolyQuanta is complete)
+    struct RandomTimeQuantity : rack::engine::ParamQuantity {
+        static float rawToSec(float r){ const float mn=0.001f,mx=10000.f; float lmn=std::log10(mn), lmx=std::log10(mx); float lx=lmn + rack::clamp(r,0.f,1.f)*(lmx-lmn); return std::pow(10.f,lx); }
+        static float secToRaw(float s){ const float mn=0.001f,mx=10000.f; s=rack::clamp(s,mn,mx); float lmn=std::log10(mn), lmx=std::log10(mx); return (std::log10(s)-lmn)/(lmx-lmn); }
+        std::string getDisplayValueString() override {
+            auto* m = dynamic_cast<PolyQuanta*>(module); bool syncMode = m ? m->rndSyncMode : false; float r=getValue();
+            if(syncMode){
+                // 64..2 divides (left), center 1x, 2..64 multiplies (right)
+                const int DIV_MAX = 64;
+                const int TOTAL = (DIV_MAX-1) + 1 + (DIV_MAX-1); // 127
+                int idx = (int)std::lround(rack::clamp(r,0.f,1.f)*(TOTAL-1)); // 0..126
+                if(idx < (DIV_MAX-1)) { int d = DIV_MAX - idx; return rack::string::f("÷%d", d); }
+                if(idx == (DIV_MAX-1)) return std::string("1×");
+                int mfac = (idx - (DIV_MAX-1)) + 1; // starts at 2
+                return rack::string::f("×%d", mfac);
+            }
+            float sec=rawToSec(r); if(sec<10.f) return rack::string::f("%.2f ms", sec*1000.f); return rack::string::f("%.2f s", sec);
+        }
+        void setDisplayValueString(std::string s) override {
+            auto* m = dynamic_cast<PolyQuanta*>(module); bool syncMode = m ? m->rndSyncMode : false; std::string t=s; for(char& c:t) c=std::tolower((unsigned char)c);
+            if(syncMode){
+                // Accept forms: -N (divide), ÷N, xN, ×N, N (multiply), 1
+                const int DIV_MAX = 64;
+                const int TOTAL = (DIV_MAX-1)+1+(DIV_MAX-1);
+                auto trim=[&](std::string& x){ while(!x.empty()&&isspace((unsigned char)x.front())) x.erase(x.begin()); while(!x.empty()&&isspace((unsigned char)x.back())) x.pop_back(); };
+                trim(t);
+                // Normalize UTF-8 symbols (÷ U+00F7, × U+00D7) to ASCII tokens to avoid multi-character literal warnings
+                auto normalizeSymbols = [](std::string& u){
+                    std::string out; out.reserve(u.size());
+                    for(size_t i=0;i<u.size();) {
+                        unsigned char c0 = (unsigned char)u[i];
+                        if(c0==0xC3 && i+1<u.size()) { // possible two-byte UTF-8 sequence
+                            unsigned char c1 = (unsigned char)u[i+1];
+                            if(c1==0xB7) { out.push_back('/'); i+=2; continue; } // ÷
+                            if(c1==0x97) { out.push_back('x'); i+=2; continue; } // ×
+                        }
+                        out.push_back(u[i]); ++i;
+                    }
+                    u.swap(out);
+                };
+                normalizeSymbols(t);
+                if(t=="1"||t=="1x"||t=="1*"||t=="1/1") { setValue((float)(DIV_MAX-1)/(TOTAL-1)); return; }
+                // Extract optional sign and digits
+                int sign=1; size_t pos=0;
+                if(!t.empty() && (t[0]=='-'||t[0]=='+')) {
+                    if(t[0]=='-') sign=-1;
+                    pos=1;
+                }
+                // Explicit divide marker: '/', 'd'
+                if(pos < t.size() && (t[pos]=='/' || t[pos]=='d')) { sign=-1; ++pos; }
+                // Explicit multiply markers: leading 'x' or '*'
+                if(pos < t.size() && (t[pos]=='x' || t[pos]=='*')) { ++pos; }
+                std::string digits; for(; pos<t.size(); ++pos){ if(isdigit((unsigned char)t[pos])) digits.push_back(t[pos]); else break; }
+                if(digits.empty()){ return; }
+                int val=0; try { val = std::stoi(digits); } catch(...) { return; }
+                if(sign<0) { // division factor
+                    if(val < 2) return;
+                    if(val > DIV_MAX) val = DIV_MAX;
+                    int idx = DIV_MAX - val; // 64..2 -> 0..62
+                    setValue((float)idx/(TOTAL-1));
+                    return;
+                }
+                if(val==1) {
+                    setValue((float)(DIV_MAX-1)/(TOTAL-1));
+                    return;
+                }
+                if(val >= 2) {
+                    if(val > DIV_MAX) val = DIV_MAX;
+                    int idx = (DIV_MAX-1) + (val-1); // 2..64 -> 63..126
+                    setValue((float)idx/(TOTAL-1));
+                    return;
+                }
+                return; }
+            bool ms=false; if(t.find("ms")!=std::string::npos){ ms=true; t.erase(t.find("ms")); } if(t.find("s")!=std::string::npos){ ms=false; t.erase(t.find("s")); } try { float v=std::stof(t); if(ms) v/=1000.f; setValue(secToRaw(v)); } catch(...) {}
+        }
+    };
+    struct PercentQuantity : rack::engine::ParamQuantity {
+        std::string getDisplayValueString() override { return rack::string::f("%.0f%%", getValue()*100.f); }
+        void setDisplayValueString(std::string s) override { std::string t=s; for(char& c:t) c=std::tolower((unsigned char)c); if(t.find('%')!=std::string::npos) t.erase(t.find('%')); try { float v=std::stof(t)/100.f; setValue(rack::clamp(v,0.f,1.f)); } catch(...) {} }
+    };
+    configParam<RandomTimeQuantity>(RND_TIME_PARAM, 0.f, 1.f, 0.5f, "Time");
+    configParam<PercentQuantity>(RND_AMT_PARAM, 0.f, 1.f, 1.f, "Amount");
+    configParam(RND_AUTO_PARAM, 0.f, 1.f, 0.f, "Auto (On/Off)");
+    configParam(RND_SYNC_PARAM, 0.f, 1.f, 0.f, "Sync (Sync/Trig)");
         // init step tracking
         for (int i = 0; i < 16; ++i) {
             stepNorm[i] = 10.f;
@@ -934,6 +1118,12 @@ struct PolyQuanta : Module {
     hi::util::jsonh::writeBool(rootJ, "randOffset",      randOffset);
     hi::util::jsonh::writeBool(rootJ, "randShapes",      randShapes);
     json_object_set_new(rootJ, "randMaxPct", json_real(randMaxPct));
+    hi::util::jsonh::writeBool(rootJ, "rndAutoEnabled", rndAutoEnabled);
+    hi::util::jsonh::writeBool(rootJ, "rndSyncMode", rndSyncMode);
+    // Persist per-mode raw time knob values (new) plus legacy single value for backward compat
+    json_object_set_new(rootJ, "rndTimeRawFree", json_real(rndTimeRawFree));
+    json_object_set_new(rootJ, "rndTimeRawSync", json_real(rndTimeRawSync));
+    json_object_set_new(rootJ, "rndTimeRaw", json_real(params[RND_TIME_PARAM].getValue())); // legacy
         // Per-channel quantize enables
         for (int i = 0; i < 16; ++i) {
             char key[32];
@@ -1059,6 +1249,19 @@ struct PolyQuanta : Module {
     randOffset      = hi::util::jsonh::readBool(rootJ, "randOffset",      randOffset);
     randShapes      = hi::util::jsonh::readBool(rootJ, "randShapes",      randShapes);
     if (auto* j = json_object_get(rootJ, "randMaxPct")) randMaxPct = (float)json_number_value(j);
+    rndAutoEnabled  = hi::util::jsonh::readBool(rootJ, "rndAutoEnabled", rndAutoEnabled);
+    rndSyncMode     = hi::util::jsonh::readBool(rootJ, "rndSyncMode", rndSyncMode);
+    if (auto* j = json_object_get(rootJ, "rndTimeRawFree")) rndTimeRawFree = (float)json_number_value(j);
+    if (auto* j = json_object_get(rootJ, "rndTimeRawSync")) rndTimeRawSync = (float)json_number_value(j);
+    if (auto* j = json_object_get(rootJ, "rndTimeRaw")) rndTimeRawLoaded = (float)json_number_value(j); // legacy single value
+    // If new keys were absent, seed both from legacy
+    if (rndTimeRawFree < 0.f || rndTimeRawFree > 1.f) rndTimeRawFree = rndTimeRawLoaded;
+    if (rndTimeRawSync < 0.f || rndTimeRawSync > 1.f) rndTimeRawSync = rndTimeRawLoaded;
+    // Apply loaded param value matching current mode
+    if (RND_TIME_PARAM < PARAMS_LEN) params[RND_TIME_PARAM].setValue(rndSyncMode ? rndTimeRawSync : rndTimeRawFree);
+    if (RND_AMT_PARAM  < PARAMS_LEN) params[RND_AMT_PARAM].setValue(randMaxPct);
+    if (RND_AUTO_PARAM < PARAMS_LEN) params[RND_AUTO_PARAM].setValue(rndAutoEnabled ? 1.f : 0.f);
+    if (RND_SYNC_PARAM < PARAMS_LEN) params[RND_SYNC_PARAM].setValue(rndSyncMode ? 1.f : 0.f);
         for (int i = 0; i < 16; ++i) {
             char key[32];
             std::snprintf(key, sizeof(key), "qzEnabled%d", i+1);
@@ -1140,6 +1343,14 @@ struct PolyQuanta : Module {
             latchedStep[i] = 0;
             prevYRel[i] = 0.f;
         }
+    // Reset auto-randomize timing state
+    rndTimerSec = 0.f;
+    rndClockPeriodSec = -1.f;
+    rndClockLastEdge = -1.f;
+    rndClockReady = false;
+    rndAbsTimeSec = 0.f;
+    rndNextFireTime = -1.f;
+    rndDivCounter = 0; rndCurrentDivide = 1; rndCurrentMultiply = 1; rndMulIndex = 0; rndMulBaseTime = -1.f; rndMulNextTime = -1.f; rndPrevRatioIdx = -1;
     }
 
 /*
@@ -1247,9 +1458,120 @@ struct PolyQuanta : Module {
         outputs[OUT_OUTPUT].setChannels(polyTrans.curOutN);
 
         // Randomize on UI button or CV gate rising edge (with hysteresis)
-        if (rndBtnTrig.process(params[RND_PARAM].getValue() > 0.5f) ||
-            rndGateTrig.process(inputs[RND_TRIG_INPUT].getVoltage())) {
+        // Update amount each block from knob (overrides legacy menu)
+        if (RND_AMT_PARAM < PARAMS_LEN)
+            randMaxPct = rack::clamp(params[RND_AMT_PARAM].getValue(), 0.f, 1.f);
+        // Cache toggle states
+        if (RND_AUTO_PARAM < PARAMS_LEN) rndAutoEnabled = params[RND_AUTO_PARAM].getValue() > 0.5f;
+        if (RND_SYNC_PARAM < PARAMS_LEN) rndSyncMode    = params[RND_SYNC_PARAM].getValue() > 0.5f;
+        // Mode switch: recall per-mode stored raw value & reset schedulers appropriately
+        if (rndSyncMode != prevRndSyncMode) {
+            if (RND_TIME_PARAM < PARAMS_LEN) params[RND_TIME_PARAM].setValue(rndSyncMode ? rndTimeRawSync : rndTimeRawFree);
+            if (rndSyncMode) { rndNextFireTime = -1.f; } else { rndTimerSec = 0.f; }
+            prevRndSyncMode = rndSyncMode;
+        }
+        // Manual button always fires
+        bool manualFire = rndBtnTrig.process(params[RND_PARAM].getValue() > 0.5f);
+        // External trigger immediate fire only when NOT in sync mode
+        bool extFire = (!rndSyncMode) && rndGateTrig.process(inputs[RND_TRIG_INPUT].getVoltage());
+        if (manualFire || extFire) {
             doRandomize();
+        }
+        // Measure external clock period when in sync mode (edges do NOT randomize directly)
+        float dt = args.sampleTime;
+        rndAbsTimeSec += dt;
+        bool edgeThisBlock = false;
+        if (rndSyncMode) {
+            // Measure clock period (single SchmittTrigger.process call per block)
+            edgeThisBlock = rndClockTrig.process(inputs[RND_TRIG_INPUT].getVoltage());
+            if (edgeThisBlock) {
+                if (rndClockLastEdge >= 0.f) {
+                    float p = rndAbsTimeSec - rndClockLastEdge;
+                    if (p > 1e-4f) {
+                        const float alpha = 0.25f; // EMA smoothing (slightly faster than previous 0.2)
+                        if (rndClockPeriodSec < 0.f) rndClockPeriodSec = p; else rndClockPeriodSec = (1.f - alpha) * rndClockPeriodSec + alpha * p;
+                        rndClockReady = true;
+                    }
+                }
+                rndClockLastEdge = rndAbsTimeSec;
+                rndDivCounter++; // advance division counter
+            }
+        }
+        // Auto schedule: free or sync
+        if (rndAutoEnabled) {
+            float raw = (RND_TIME_PARAM < PARAMS_LEN) ? params[RND_TIME_PARAM].getValue() : 0.5f;
+            auto rawToSec = [](float r){ const float mn=0.001f, mx=10000.f; float lmn=std::log10(mn), lmx=std::log10(mx); float lx = lmn + rack::clamp(r,0.f,1.f)*(lmx-lmn); return std::pow(10.f,lx); };
+            // Centered 1x mapping: indices 0..125 divides (64..2), 126 center (1x), 127..251 multiplies (2..64)
+            const int DIV_MAX = 64;
+            const int TOTAL_SYNC_STEPS = (DIV_MAX-1) + 1 + (DIV_MAX-1); // 127 positions -> indices 0..126 (but we double to allow higher resolution raw?)
+            // We'll map raw to 0..(TOTAL_SYNC_STEPS-1)
+            const int SYNC_LAST_INDEX = TOTAL_SYNC_STEPS - 1; // 126
+            if (rndSyncMode) {
+                rndTimeRawSync = raw;
+                if (rndClockReady && rndClockPeriodSec > 0.f) {
+                    int idx = (int)std::lround(rack::clamp(raw,0.f,1.f)*SYNC_LAST_INDEX); // 0..126
+                    if (idx < 0) idx = 0; else if (idx > SYNC_LAST_INDEX) idx = SYNC_LAST_INDEX;
+                    int div = 1, mul = 1;
+                    if (idx < (DIV_MAX-1)) { // divides region
+                        int d = DIV_MAX - idx; // 64..2
+                        div = d; mul = 1;
+                    } else if (idx == (DIV_MAX-1)) { // center 1x
+                        div = 1; mul = 1;
+                    } else { // multiplies region
+                        int mfac = (idx - (DIV_MAX-1)) + 1; // 2..64
+                        div = 1; mul = mfac;
+                    }
+                    bool ratioChanged = (idx != rndPrevRatioIdx);
+                    if (ratioChanged) {
+                        rndPrevRatioIdx = idx;
+                        // Reset phase and counters
+                        rndMulIndex = 0; rndMulNextTime = -1.f; rndMulBaseTime = rndAbsTimeSec;
+                        if (div > 1) rndDivCounter = 0; else if (mul > 1) { /* first pulse also at edge, handled below */ }
+                    }
+                    rndCurrentDivide = div; rndCurrentMultiply = mul;
+                    if (div > 1 && mul == 1) {
+                        // Pure division: emit only on qualifying edges
+                        if (edgeThisBlock && (rndDivCounter % div) == 0) doRandomize();
+                    } else if (div == 1 && mul == 1) {
+                        // 1x: fire on every edge
+                        if (edgeThisBlock) doRandomize();
+                    } else if (mul > 1 && div == 1) {
+                        // Multiplication: first pulse AT edge, then (mul-1) evenly spaced after
+                        if (edgeThisBlock || ratioChanged) {
+                            if (edgeThisBlock) doRandomize(); // pulse at the edge
+                            rndMulBaseTime = rndAbsTimeSec; // anchor
+                            rndMulIndex = 0; // counts interior pulses emitted
+                            float period = rndClockPeriodSec;
+                            if (period <= 0.f) { rndMulNextTime = -1.f; }
+                            else {
+                                float subdiv = period / (float)mul;
+                                rndMulNextTime = rndMulBaseTime + subdiv; // first interior pulse time
+                            }
+                        }
+                        if (rndMulNextTime >= 0.f && rndClockPeriodSec > 0.f) {
+                            float subdiv = rndClockPeriodSec / (float)mul;
+                            while (rndMulNextTime >= 0.f && rndMulNextTime <= rndAbsTimeSec + 1e-9f) {
+                                doRandomize();
+                                rndMulIndex++;
+                                if (rndMulIndex >= mul - 1) { rndMulNextTime = -1.f; break; }
+                                rndMulNextTime += subdiv;
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Free mode (legacy logarithmic timing)
+                rndTimeRawFree = raw;
+                float intervalSec = rawToSec(raw);
+                if (intervalSec < 0.001f) intervalSec = 0.001f;
+                rndTimerSec += dt;
+                if (rndTimerSec >= intervalSec) {
+                    doRandomize();
+                    while (rndTimerSec >= intervalSec) rndTimerSec -= intervalSec;
+                }
+            }
+        } else {
+            if (rndTimerSec > 60.f) rndTimerSec = std::fmod(rndTimerSec, 60.f);
         }
 
         // Global shapes and precomputed constants (shared per block)
@@ -1661,6 +1983,92 @@ const int PolyQuanta::QZ_PARAM[16] = {
     PolyQuanta::QZ15_PARAM, PolyQuanta::QZ16_PARAM
 };
 
+// --- MOS helpers needing full PolyQuanta definition -------------------------------------------
+namespace hi { namespace music { namespace mos {
+    void buildMaskFromCycle(PolyQuanta* mod, int N, const std::vector<int>& pcs, bool followsRoot){
+        if(!mod||N<=0) return;
+        if(N==12) mod->customMask12=0u; else if(N==24) mod->customMask24=0u; else mod->customMaskGeneric.assign(N,0);
+        for(int p: pcs){
+            if(p<0||p>=N) continue;
+            int bit = followsRoot? p : ((mod->rootNote + p)%N+N)%N;
+            if(N==12) mod->customMask12|=(1u<<bit);
+            else if(N==24) mod->customMask24|=(1u<<bit);
+            else {
+                if((int)mod->customMaskGeneric.size()!=N) mod->customMaskGeneric.assign(N,0);
+                mod->customMaskGeneric[(size_t)bit]=1;
+            }
+        }
+    }
+    bool detectCurrentMOS(PolyQuanta* mod, int& mOut, int& gOut){
+        if(!mod) return false;
+        int N = (mod->tuningMode==0 ? mod->edo : mod->tetSteps);
+        if(N < 2 || N > 24) { mod->mosCache.valid=false; return false; }
+        // Build cache key
+        uint64_t h = mod->hashMask(N);
+        bool keyMatch = mod->mosCache.valid &&
+            mod->mosCache.N==N &&
+            mod->mosCache.tuningMode==mod->tuningMode &&
+            mod->mosCache.edo==mod->edo &&
+            mod->mosCache.tetSteps==mod->tetSteps &&
+            mod->mosCache.rootNote==mod->rootNote &&
+            mod->mosCache.useCustom==mod->useCustomScale &&
+            mod->mosCache.followsRoot==mod->customScaleFollowsRoot &&
+            mod->mosCache.maskHash==h;
+        if(keyMatch){
+            if(mod->mosCache.found){ mOut=mod->mosCache.m; gOut=mod->mosCache.g; }
+            return mod->mosCache.found;
+        }
+        // Recompute
+        mod->mosCache.valid = true;
+        mod->mosCache.N = N;
+        mod->mosCache.tuningMode = mod->tuningMode;
+        mod->mosCache.edo = mod->edo;
+        mod->mosCache.tetSteps = mod->tetSteps;
+        mod->mosCache.rootNote = mod->rootNote;
+        mod->mosCache.useCustom = mod->useCustomScale;
+        mod->mosCache.followsRoot = mod->customScaleFollowsRoot;
+        mod->mosCache.maskHash = h;
+        mod->mosCache.found = false;
+        mod->mosCache.m = 0; mod->mosCache.g = 0;
+        if(!mod->useCustomScale){ return false; }
+        // Gather pitch classes (raw mask interpretation)
+        std::vector<int> pcs;
+        pcs.reserve(32);
+        if(N==12){ for(int i=0;i<12;++i) if((mod->customMask12>>i)&1u) pcs.push_back(i); }
+        else if(N==24){ for(int i=0;i<24;++i) if((mod->customMask24>>i)&1u) pcs.push_back(i); }
+        else { if((int)mod->customMaskGeneric.size()!=N) return false; for(int i=0;i<N;++i) if(mod->customMaskGeneric[(size_t)i]) pcs.push_back(i); }
+        // Bounds
+        if(pcs.size()<2 || pcs.size()>24) return false;
+        // Normalization: rotate so reference (root or min) maps to 0
+        int rotateBy = 0;
+        if(mod->customScaleFollowsRoot) {
+            rotateBy = 0; // already relative to root
+        } else if(mod->useCustomScale) {
+            // absolute PCs; rotate by -rootNote
+            int r = mod->rootNote % N; if(r<0) r+=N; rotateBy = (N - r) % N;
+        }
+        if(!mod->customScaleFollowsRoot && !mod->useCustomScale) {
+            // unreachable given earlier branch, but keep for safety
+            int mn = *std::min_element(pcs.begin(),pcs.end()); rotateBy = (N - (mn%N)+N)%N;
+        }
+        for(int& p : pcs){ p = (p + rotateBy) % N; }
+        std::sort(pcs.begin(),pcs.end()); pcs.erase(std::unique(pcs.begin(),pcs.end()), pcs.end());
+        if(pcs.size()<2 || pcs.size()>24) return false;
+        int m = (int)pcs.size();
+        // Try all coprime generators
+        for(int g=1; g<N; ++g){
+            if(gcdInt(g,N)!=1) continue;
+            auto cyc=generateCycle(N,g,m);
+            if((int)cyc.size()!=m) continue;
+            if(cyc==pcs){
+                mod->mosCache.found=true; mod->mosCache.m=m; mod->mosCache.g=g;
+                mOut=m; gOut=g; return true;
+            }
+        }
+        return false;
+    }
+} } }
+
 
 /*
 -----------------------------------------------------------------------
@@ -1714,10 +2122,15 @@ struct PolyQuantaWidget : ModuleWidget {
     const float dxCentsRightMM =  (ledDxMM + 8.0f); // Right column cents X offset from center
     const float dyCentsMM      =  0.0f;            // Cents text Y offset from row center
     // Bottom I/O and button row
-    const float yInOutMM   = 111.743f; // IN/OUT jacks Y
-    const float yTrigMM    = 121.743f; // Randomize trigger jack Y
+    const float yInOutMM   = 114.000f; // IN/OUT jacks Y
+    const float yTrigMM    = 122.000f; // Randomize trigger jack Y
     const float yBtnMM     = 106.000f; // Randomize button Y
-    const float dxPortsMM  = 14.985f;  // Horizontal offset from center to IN/OUT jacks
+    const float dxPortsMM  = 22.000f;  // Horizontal offset from center to IN/OUT jacks
+    // Auto-randomize new control placements (cluster around existing Randomize button)
+    const float yRndKnobMM = 114.0f;    // Row for Time & Amount knobs
+    const float dxRndKnobMM = 10.0f;   // Horizontal offset from center to each knob
+    const float yRndSwMM   = 122.0f;   // Switch row aligned with button
+    const float dxRndSwMM  = 10.0f;    // Horizontal offset for switches (Auto left, Sync right)
 
     // Custom knob with per-control randomize lock in context menu
         struct LockableTrimpot : Trimpot {
@@ -1878,6 +2291,13 @@ struct PolyQuantaWidget : ModuleWidget {
             addParam(createParamCentered<VCVButton>(mm2px(Vec(cxMM, yBtnMM)), module, PolyQuanta::RND_PARAM));
             // Output port (poly)
             addOutput(createOutputCentered<ThemedPJ301MPort>(mm2px(Vec(cxMM + dxPortsMM, yInOutMM)), module, PolyQuanta::OUT_OUTPUT));
+            // Auto-randomize controls
+            if (module) {
+                addParam(createParamCentered<Trimpot>(mm2px(Vec(cxMM - dxRndKnobMM, yRndKnobMM)), module, PolyQuanta::RND_TIME_PARAM));
+                addParam(createParamCentered<Trimpot>(mm2px(Vec(cxMM + dxRndKnobMM, yRndKnobMM)), module, PolyQuanta::RND_AMT_PARAM));
+                addParam(createParamCentered<CKSS>(mm2px(Vec(cxMM - dxRndSwMM, yRndSwMM)), module, PolyQuanta::RND_AUTO_PARAM));
+                addParam(createParamCentered<CKSS>(mm2px(Vec(cxMM + dxRndSwMM, yRndSwMM)), module, PolyQuanta::RND_SYNC_PARAM));
+            }
         }
 	}
 
@@ -2042,13 +2462,8 @@ struct PolyQuantaWidget : ModuleWidget {
             sm2->addChild(rack::createBoolPtrMenuItem("Offsets", "", &m->randOffset));
             sm2->addChild(rack::createBoolPtrMenuItem("Shapes", "", &m->randShapes));
         }));
-        // Max percentage
-        sm->addChild(rack::createSubmenuItem("Max", "", [m](rack::ui::Menu* sm2){
-            for (int pct = 10; pct <= 100; pct += 10) {
-                float v = pct / 100.f;
-                sm2->addChild(rack::createCheckMenuItem(rack::string::f("%d%%", pct), "", [m,v]{ return std::fabs(m->randMaxPct - v) < 1e-4f; }, [m,v]{ m->randMaxPct = v; }));
-            }
-        }));
+    // Amount now driven by front-panel knob (RND_AMT_PARAM); submenu retained only as informational label
+    sm->addChild(rack::createMenuLabel("Amount: front panel knob"));
     }));
 
     // Quantization (musical) settings
@@ -2089,15 +2504,18 @@ struct PolyQuantaWidget : ModuleWidget {
                 case 2: roundStr = "Up"; break;
                 case 3: roundStr = "Down"; break;
             }
+            // Attempt ephemeral MOS detection for status annotation
+            int mosM=0, mosG=0; bool mosOk = hi::music::mos::detectCurrentMOS(m, mosM, mosG);
+            std::string mosStr = mosOk? rack::string::f(", MOS %d/gen %d", mosM, mosG) : "";
             menu->addChild(rack::createMenuLabel(rack::string::f(
-                "Status: %s %d, Root %s, Scale %s, Strength %d%%, Round %s, Stickiness %.1f¢ (max %.0f¢)",
-                (m->tuningMode==0?"EDO":"TET"), steps, rootStr.c_str(), scaleStr.c_str(), pct,
+                "Status: %s %d, Root %s, Scale %s%s, Strength %d%%, Round %s, Stickiness %.1f¢ (max %.0f¢)",
+                (m->tuningMode==0?"EDO":"TET"), steps, rootStr.c_str(), scaleStr.c_str(), mosStr.c_str(), pct,
                 roundStr, m->stickinessCents, maxStick)));
         }
         // Tuning system selector
         menu->addChild(rack::createSubmenuItem("Tuning system", "", [m](rack::ui::Menu* sm){
-            sm->addChild(rack::createCheckMenuItem("EDO (octave)", "", [m]{ return m->tuningMode==0; }, [m]{ m->tuningMode=0; }));
-            sm->addChild(rack::createCheckMenuItem("TET (non-octave)", "", [m]{ return m->tuningMode==1; }, [m]{ m->tuningMode=1; }));
+            sm->addChild(rack::createCheckMenuItem("EDO (octave)", "", [m]{ return m->tuningMode==0; }, [m]{ m->tuningMode=0; m->invalidateMOSCache(); }));
+            sm->addChild(rack::createCheckMenuItem("TET (non-octave)", "", [m]{ return m->tuningMode==1; }, [m]{ m->tuningMode=1; m->invalidateMOSCache(); }));
         }));
     // EDO selection: curated quick picks with descriptions + full range navigator (labels show cents/step)
         menu->addChild(rack::createSubmenuItem("EDO", "", [m](rack::ui::Menu* sm){
@@ -2199,7 +2617,7 @@ struct PolyQuantaWidget : ModuleWidget {
                     } else {
                         label = rack::string::f("%d", n);
                     }
-                    menuDest->addChild(rack::createCheckMenuItem(label, "", [m,n]{ return m->rootNote == n; }, [m,n]{ m->rootNote = n; }));
+                    menuDest->addChild(rack::createCheckMenuItem(label, "", [m,n]{ return m->rootNote == n; }, [m,n]{ m->rootNote = n; m->invalidateMOSCache(); }));
                 }
             };
             if (N > 72) {
@@ -2246,9 +2664,10 @@ struct PolyQuantaWidget : ModuleWidget {
                         m->customMaskGeneric.assign((size_t)N, 1);
                     }
                 }
+                m->invalidateMOSCache();
             }));
             sm->addChild(rack::createCheckMenuItem("Remember custom scale", "", [m]{ return m->rememberCustomScale; }, [m]{ m->rememberCustomScale = !m->rememberCustomScale; }));
-            sm->addChild(rack::createCheckMenuItem("Custom scales follow root", "", [m]{ return m->customScaleFollowsRoot; }, [m]{ m->customScaleFollowsRoot = !m->customScaleFollowsRoot; }));
+            sm->addChild(rack::createCheckMenuItem("Custom scales follow root", "", [m]{ return m->customScaleFollowsRoot; }, [m]{ m->customScaleFollowsRoot = !m->customScaleFollowsRoot; m->invalidateMOSCache(); }));
             if (m->tuningMode==0 && m->edo == 12 && !m->useCustomScale) {
                 for (int i = 0; i < hi::music::NUM_SCALES12; ++i) {
                     sm->addChild(rack::createCheckMenuItem(hi::music::scales12()[i].name, "", [m,i]{ return m->scaleIndex == i; }, [m,i]{ m->scaleIndex = i; }));
@@ -2258,18 +2677,54 @@ struct PolyQuantaWidget : ModuleWidget {
                     sm->addChild(rack::createCheckMenuItem(hi::music::scales24()[i].name, "", [m,i]{ return m->scaleIndex == i; }, [m,i]{ m->scaleIndex = i; }));
                 }
             } else {
+                // MOS presets submenu (current EDO)
+                sm->addChild(rack::createSubmenuItem("MOS presets (current EDO)", "", [m](rack::ui::Menu* smMos){
+                    if (m->tuningMode!=0) return; 
+                    int N = std::max(1,m->edo);
+                    auto it = hi::music::mos::curated.find(N);
+                    if (it==hi::music::mos::curated.end()) return;
+                    for (int msz : it->second){
+                        if(msz<2) continue;
+                        int mClamped = std::min(std::min(msz,N),24);
+                        std::string lbl = rack::string::f("%d notes", mClamped);
+                        smMos->addChild(rack::createSubmenuItem(lbl, "", [m,N,mClamped](rack::ui::Menu* smAdv){
+                            // Build generator choices only; do NOT modify scale until user selects.
+                            smAdv->addChild(rack::createMenuLabel("Generators"));
+                            int bestG = hi::music::mos::findBestGenerator(N,mClamped);
+                            for(int gTest=1; gTest<N; ++gTest){
+                                if(hi::music::mos::gcdInt(gTest,N)!=1) continue;
+                                auto cyc=hi::music::mos::generateCycle(N,gTest,mClamped);
+                                if((int)cyc.size()!=mClamped) continue;
+                                if(!hi::music::mos::isMOS(cyc,N)) continue;
+                                std::string pat = hi::music::mos::patternLS(cyc,N);
+                                bool isBest = (gTest==bestG);
+                                std::string glabel = rack::string::f("gen %d %s%s", gTest, pat.c_str(), isBest?" (best)":"");
+                                smAdv->addChild(rack::createMenuItem(glabel, "", [m,N,gTest,mClamped]{
+                                    auto cyc2=hi::music::mos::generateCycle(N,gTest,mClamped);
+                                    m->useCustomScale=true;
+                                    m->customScaleFollowsRoot=true;
+                                    hi::music::mos::buildMaskFromCycle(m,N,cyc2,true);
+                                    m->scaleIndex=0;
+                                    m->invalidateMOSCache();
+                                }));
+                            }
+                        }));
+                    }
+                }));
                 // Custom scale editing helpers
                 sm->addChild(rack::createMenuItem("Select All Notes", "", [m]{
                     int N = std::max(1, (m->tuningMode==0 ? m->edo : m->tetSteps));
                     if (N == 12) m->customMask12 = 0xFFFu;
                     else if (N == 24) m->customMask24 = 0xFFFFFFu;
                     else m->customMaskGeneric.assign((size_t)N, 1);
+                    m->invalidateMOSCache();
                 }));
                 sm->addChild(rack::createMenuItem("Clear All Notes", "", [m]{
                     int N = std::max(1, (m->tuningMode==0 ? m->edo : m->tetSteps));
                     if (N == 12) m->customMask12 = 0u;
                     else if (N == 24) m->customMask24 = 0u;
                     else m->customMaskGeneric.assign((size_t)N, 0);
+                    m->invalidateMOSCache();
                 }));
                 sm->addChild(rack::createMenuItem("Invert Selection", "", [m]{
                     int N = std::max(1, (m->tuningMode==0 ? m->edo : m->tetSteps));
@@ -2279,6 +2734,7 @@ struct PolyQuantaWidget : ModuleWidget {
                         if ((int)m->customMaskGeneric.size() != N) m->customMaskGeneric.assign((size_t)N, 0);
                         for (int i = 0; i < N; ++i) m->customMaskGeneric[(size_t)i] = m->customMaskGeneric[(size_t)i] ? 0 : 1;
                     }
+                    m->invalidateMOSCache();
                 }));
                 // Quick action: select degrees aligned to 12-EDO semitones (EDO mode only)
                 if (m->tuningMode == 0) {
@@ -2315,6 +2771,7 @@ struct PolyQuantaWidget : ModuleWidget {
                                 setDeg(n, aligned);
                             }
                         }
+                        m->invalidateMOSCache();
                     }));
                 }
                 sm->addChild(new MenuSeparator);
