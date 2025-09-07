@@ -11,3 +11,4 @@ extern Plugin* pluginInstance;
 // extern Model* modelMyModule;
 extern Model* modelOffset;
 extern Model* modelPolyQuanta;
+//extern Model* modelPolyQuantaXL; // future expansion
