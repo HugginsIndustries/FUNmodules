@@ -1,125 +1,147 @@
 {
-  "version": "2.0.0",
-  "options": {
-    "cwd": "${workspaceFolder}",
-    "env": {
-      "MSYSTEM": "MINGW64",
-      "CHERE_INVOKING": "1",
-      "RACK_DIR": "${env:RACK_SDK}",
-      "RACK_SDK": "${env:RACK_SDK}",
-      "RACK_USER_DIR": "${env:RACK_USER_DIR}"
-    },
-    "shell": {
-      "executable": "C:\\msys64\\usr\\bin\\bash.exe",
-      "args": ["-lc"]
-    }
-  },
-  "tasks": [
-    {
-      "label": "Build",
-      "type": "shell",
-      "command": "make",
-      "args": [
-        "-j$(nproc)"
-      ],
-      "problemMatcher": [
-        "$gcc"
-      ],
-      "detail": "Build plugin with MSYS2 MinGW-w64 toolchain"
-    },
-    {
-      "label": "Install",
-      "type": "shell",
-      "command": "make",
-      "args": [
-        "install"
-      ],
-      "problemMatcher": [
-        "$gcc"
-      ],
-      "detail": "Install to $RACK_USER_DIR/plugins"
-    },
-    {
-      "label": "Clean",
-      "type": "shell",
-      "command": "make",
-      "args": [
-        "clean"
-      ],
-      "problemMatcher": [
-        "$gcc"
-      ],
-      "detail": "Remove build artifacts"
-    },
-    {
-      "label": "Generate module.cpp from SVG",
-      "type": "shell",
-      "command": "python3 \"$RACK_SDK/helper.py\" createmodule ${input:ModuleName} res/${input:ModuleName}.svg src/${input:ModuleName}.cpp",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "detail": "Generate src/<name>.cpp from res/<name>.svg"
-    },
-    {
-      "label": "Build & Install",
-      "dependsOn": [
-        "Build",
-        "Install"
-      ],
-      "dependsOrder": "sequence",
-      "group": {
-        "kind": "build"
-      },
-      "detail": "Build then install"
-    },
-    {
-      "label": "Clean → Build & Install",
-      "dependsOn": [
-        "Clean",
-        "Build",
-        "Install"
-      ],
-      "dependsOrder": "sequence",
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      },
-      "detail": "Clean, compile, then install"
-    },
-    {
-      "label": "Generate → Build & Install",
-      "dependsOn": [
-        "Generate module.cpp from SVG",
-        "Build & Install"
-      ],
-      "dependsOrder": "sequence",
-      "detail": "Create module.cpp, build, install"
-    },
-    {
-      "label": "Git: Commit + Push (prompt)",
-      "type": "shell",
-      "command": "git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo 'Not a git repo'; exit 1; }; MSG='${input:commitMsg}'; if [ -z \"$MSG\" ]; then MSG=\"chore: save $(date -u +%Y-%m-%dT%H:%M:%SZ)\"; fi; if git diff --quiet && git diff --cached --quiet; then echo 'No changes to commit'; else git add -A && git commit -m \"$MSG\"; fi; git push -u origin main",
-      "problemMatcher": []
-    },
-    {
-      "label": "Git: Quick Commit + Push",
-      "type": "shell",
-      "command": "git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo 'Not a git repo'; exit 1; }; MSG=\"chore: save $(date -u +%Y-%m-%dT%H:%M:%SZ)\"; if git diff --quiet && git diff --cached --quiet; then echo 'No changes to commit'; else git add -A && git commit -m \"$MSG\"; fi; git push -u origin main",
-      "problemMatcher": []
-    }
-  ],
-  "inputs": [
-    {
-      "id": "ModuleName",
-      "type": "promptString",
-      "description": "Module name (expects res/<name>.svg)",
-      "default": "TestModule"
-    },
-    {
-      "id": "commitMsg",
-      "type": "promptString",
-      "description": "Commit message (blank → auto timestamp)",
-      "default": ""
-    }
-  ]
+	"version": "2.0.0",
+	"options": {
+		"cwd": "${workspaceFolder}",
+		"env": {
+			"MSYSTEM": "MINGW64",
+			"CHERE_INVOKING": "1",
+			"RACK_DIR": "${env:RACK_SDK}",
+			"RACK_SDK": "${env:RACK_SDK}",
+			"RACK_USER_DIR": "${env:RACK_USER_DIR}"
+		},
+		"shell": {
+			"executable": "C:\\msys64\\usr\\bin\\bash.exe",
+			"args": [
+				"-lc"
+			]
+		}
+	},
+	"tasks": [
+		{
+			"label": "Build",
+			"type": "shell",
+			"command": "make",
+			"args": [
+				"-j$(nproc)"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"detail": "Build plugin with MSYS2 MinGW-w64 toolchain"
+		},
+		{
+			"label": "Install",
+			"type": "shell",
+			"command": "make",
+			"args": [
+				"install"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"detail": "Install to $RACK_USER_DIR/plugins"
+		},
+		{
+			"label": "Clean",
+			"type": "shell",
+			"command": "make",
+			"args": [
+				"clean"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"detail": "Remove build artifacts"
+		},
+		{
+			"label": "Generate module.cpp from SVG",
+			"type": "shell",
+			"command": "python3 \"$RACK_SDK/helper.py\" createmodule ${input:ModuleName} res/${input:ModuleName}.svg src/${input:ModuleName}.cpp",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"detail": "Generate src/<name>.cpp from res/<name>.svg"
+		},
+		{
+			"label": "Build & Install",
+			"dependsOn": [
+				"Build",
+				"Install"
+			],
+			"dependsOrder": "sequence",
+			"group": {
+				"kind": "build"
+			},
+			"detail": "Build then install"
+		},
+		{
+			"label": "Clean → Build & Install",
+			"dependsOn": [
+				"Clean",
+				"Build",
+				"Install"
+			],
+			"dependsOrder": "sequence",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"detail": "Clean, compile, then install"
+		},
+		{
+			"label": "Generate → Build & Install",
+			"dependsOn": [
+				"Generate module.cpp from SVG",
+				"Build & Install"
+			],
+			"dependsOrder": "sequence",
+			"detail": "Create module.cpp, build, install"
+		},
+		{
+			"label": "Git: Commit + Push (prompt)",
+			"type": "shell",
+			"command": "git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo 'Not a git repo'; exit 1; }; MSG='${input:commitMsg}'; if [ -z \"$MSG\" ]; then MSG=\"chore: save $(date -u +%Y-%m-%dT%H:%M:%SZ)\"; fi; if git diff --quiet && git diff --cached --quiet; then echo 'No changes to commit'; else git add -A && git commit -m \"$MSG\"; fi; git push -u origin main",
+			"problemMatcher": []
+		},
+		{
+			"label": "Git: Quick Commit + Push",
+			"type": "shell",
+			"command": "git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo 'Not a git repo'; exit 1; }; MSG=\"chore: save $(date -u +%Y-%m-%dT%H:%M:%SZ)\"; if git diff --quiet && git diff --cached --quiet; then echo 'No changes to commit'; else git add -A && git commit -m \"$MSG\"; fi; git push -u origin main",
+			"problemMatcher": []
+		},
+		{
+			"label": "Build (core tests)",
+			"type": "shell",
+			"group": "build",
+			"problemMatcher": [
+				"$gcc"
+			],
+			"command": "mkdir -p build && g++ -std=c++17 -O2 -DUNIT_TESTS src/core/PolyQuantaCore.cpp src/core/ScaleDefs.cpp tests/main.cpp -Isrc -o build/core_tests && ./build/core_tests",
+			"detail": "Headless build + run of core unit tests using Bash (no Rack SDK). Forward slashes & ./ for cross-platform bash shells."
+		},
+		{
+			"label": "Build (core tests)",
+			"type": "shell",
+			"command": "mkdir -p build && g++ -std=c++17 -O2 -DUNIT_TESTS src/core/PolyQuantaCore.cpp src/core/ScaleDefs.cpp tests/main.cpp -Isrc -o build/core_tests && ./build/core_tests"
+		},
+		{
+			"label": "Build (core tests)",
+			"type": "shell",
+			"command": "mkdir -p build && g++ -std=c++17 -O2 -DUNIT_TESTS src/core/PolyQuantaCore.cpp src/core/ScaleDefs.cpp tests/main.cpp -Isrc -o build/core_tests && ./build/core_tests"
+		}
+	],
+	"inputs": [
+		{
+			"id": "ModuleName",
+			"type": "promptString",
+			"description": "Module name (expects res/<name>.svg)",
+			"default": "TestModule"
+		},
+		{
+			"id": "commitMsg",
+			"type": "promptString",
+			"description": "Commit message (blank → auto timestamp)",
+			"default": ""
+		}
+	]
 }

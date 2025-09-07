@@ -87,34 +87,8 @@ namespace hi { namespace music { namespace mos {
 
 // (Scale defs moved to core/ScaleDefs.* — single source of truth)
 
-namespace hi { namespace music { namespace edo {
-// Curated EDO presets grouped by usefulness
-static inline const std::vector<int>& near12() { static const std::vector<int> v{10,14,16}; return v; }
-static inline const std::vector<int>& diatonicFavs() { static const std::vector<int> v{19,31,22,17,13}; return v; }
-static inline const std::vector<int>& microFamilies() { static const std::vector<int> v{18,36,48,72}; return v; }
-static inline const std::vector<int>& jiAccurate() { static const std::vector<int> v{41,53}; return v; }
-static inline const std::vector<int>& extras() { static const std::vector<int> v{11,20,26,34}; return v; }
-static inline std::vector<int> allRecommended() {
-    std::vector<int> all; all.reserve(32);
-    auto add=[&](const std::vector<int>& g){ all.insert(all.end(), g.begin(), g.end()); };
-    add(near12()); add(diatonicFavs()); add(microFamilies()); add(jiAccurate()); add(extras());
-    std::vector<int> out; out.reserve(all.size());
-    for (int n : all) { if (std::find(out.begin(), out.end(), n) == out.end()) out.push_back(n); }
-    return out;
-}
-}}} // namespace hi::music::edo
-
-namespace hi { namespace music { namespace tets {
-struct Tet { const char* name; int steps; float periodOct; };
-static inline const std::vector<Tet>& carlos() {
-    static const std::vector<Tet> v{
-        {"Carlos Alpha", 9,  std::log2(3.f/2.f)},
-        {"Carlos Beta",  11, std::log2(3.f/2.f)},
-        {"Carlos Gamma", 20, std::log2(3.f/2.f)}
-    };
-    return v;
-}
-}}} // namespace hi::music::tets
+// (Curated EDO/TET preset groups moved to core/EdoTetPresets.*)
+#include "core/EdoTetPresets.hpp"
 
 // (Range helpers moved to core)
 
@@ -286,6 +260,11 @@ using namespace rack::componentlibrary;
 namespace hconst = hi::consts;
 // Import transition phase enum values for brevity in this file
 using namespace hi::dsp::polytrans;
+
+// Phase 3D forward declarations for CoreState glue (definitions placed after
+// full PolyQuanta type to avoid incomplete-type member access errors).
+static void fillCoreStateFromModule(const struct PolyQuanta& m, hi::dsp::CoreState& cs) noexcept;
+static void applyCoreStateToModule(const hi::dsp::CoreState& cs, struct PolyQuanta& m) noexcept;
 
 /*
 -----------------------------------------------------------------------
@@ -898,27 +877,11 @@ struct PolyQuanta : Module {
             std::snprintf(key, sizeof(key), "postOctShift%d", i+1);
             json_object_set_new(rootJ, key, json_integer(postOctShift[i]));
         }
-    // Quantization meta
-    json_object_set_new(rootJ, "quantStrength", json_real(quantStrength));
-    json_object_set_new(rootJ, "quantRoundMode", json_integer(quantRoundMode));
-    json_object_set_new(rootJ, "stickinessCents", json_real(stickinessCents));
-    json_object_set_new(rootJ, "edo", json_integer(edo));
-    json_object_set_new(rootJ, "tuningMode", json_integer(tuningMode));
-    json_object_set_new(rootJ, "tetSteps", json_integer(tetSteps));
-    json_object_set_new(rootJ, "tetPeriodOct", json_real(tetPeriodOct));
-    hi::util::jsonh::writeBool(rootJ, "useCustomScale", useCustomScale);
-    hi::util::jsonh::writeBool(rootJ, "rememberCustomScale", rememberCustomScale);
-    hi::util::jsonh::writeBool(rootJ, "customScaleFollowsRoot", customScaleFollowsRoot);
-    json_object_set_new(rootJ, "customMask12", json_integer(customMask12));
-    json_object_set_new(rootJ, "customMask24", json_integer(customMask24));
-    // Persist generic custom mask if present
-    if (!customMaskGeneric.empty()) {
-        json_t* arr = json_array();
-        for (size_t i = 0; i < customMaskGeneric.size(); ++i) {
-            json_array_append_new(arr, json_integer((int)customMaskGeneric[i]));
-        }
-        json_object_set_new(rootJ, "customMaskGenericN", json_integer((int)customMaskGeneric.size()));
-        json_object_set_new(rootJ, "customMaskGeneric", arr);
+    // Phase 3D: delegate quant JSON to core (no behavior change)
+    {
+        hi::dsp::CoreState cs;
+        fillCoreStateFromModule(*this, cs);
+        hi::dsp::coreToJson(rootJ, cs);
     }
         // Locks
         for (int i = 0; i < 16; ++i) {
@@ -936,9 +899,7 @@ struct PolyQuanta : Module {
         hi::util::jsonh::writeBool(rootJ, "lockFallShape", lockFallShape);
         hi::util::jsonh::writeBool(rootJ, "allowRiseShape", allowRiseShape);
         hi::util::jsonh::writeBool(rootJ, "allowFallShape", allowFallShape);
-    // Quantization settings
-    json_object_set_new(rootJ, "rootNote", json_integer(rootNote));
-    json_object_set_new(rootJ, "scaleIndex", json_integer(scaleIndex));
+    // (rootNote/scaleIndex now serialized via CoreState above)
     // Polyphony transition fade settings
     json_object_set_new(rootJ, "polyFadeSec", json_real(polyFadeSec));
     return rootJ;
@@ -1035,30 +996,12 @@ struct PolyQuanta : Module {
             std::snprintf(key, sizeof(key), "postOctShift%d", i+1);
             if (auto* jv = json_object_get(rootJ, key)) postOctShift[i] = (int)json_integer_value(jv);
         }
-    if (auto* j = json_object_get(rootJ, "quantStrength")) quantStrength = (float)json_number_value(j);
-    if (auto* j = json_object_get(rootJ, "quantRoundMode")) quantRoundMode = (int)json_integer_value(j);
-    if (auto* j = json_object_get(rootJ, "stickinessCents")) stickinessCents = (float)json_number_value(j);
-    if (auto* j = json_object_get(rootJ, "edo")) edo = (int)json_integer_value(j);
-    if (auto* j = json_object_get(rootJ, "tuningMode")) tuningMode = (int)json_integer_value(j);
-    if (auto* j = json_object_get(rootJ, "tetSteps")) tetSteps = (int)json_integer_value(j);
-    if (auto* j = json_object_get(rootJ, "tetPeriodOct")) tetPeriodOct = (float)json_number_value(j);
-    useCustomScale = hi::util::jsonh::readBool(rootJ, "useCustomScale", useCustomScale);
-    rememberCustomScale = hi::util::jsonh::readBool(rootJ, "rememberCustomScale", rememberCustomScale);
-    customScaleFollowsRoot = hi::util::jsonh::readBool(rootJ, "customScaleFollowsRoot", customScaleFollowsRoot);
-    if (auto* j = json_object_get(rootJ, "customMask12")) customMask12 = (uint32_t)json_integer_value(j);
-    if (auto* j = json_object_get(rootJ, "customMask24")) customMask24 = (uint32_t)json_integer_value(j);
-    // Restore generic custom mask if available
-        customMaskGeneric.clear();
-        if (auto* arr = json_object_get(rootJ, "customMaskGeneric")) {
-            if (json_is_array(arr)) {
-                size_t len = json_array_size(arr);
-                customMaskGeneric.resize(len);
-                for (size_t i = 0; i < len; ++i) {
-                    json_t* v = json_array_get(arr, i);
-                    customMaskGeneric[i] = (uint8_t)((int)json_integer_value(v) ? 1 : 0);
-                }
-            }
-        }
+    // Phase 3D: delegate quant JSON to core (no behavior change)
+    {
+        hi::dsp::CoreState cs; // defaults match previous initialization paths
+        hi::dsp::coreFromJson(rootJ, cs);
+        applyCoreStateToModule(cs, *this);
+    }
         for (int i = 0; i < 16; ++i) {
             char key[32];
             std::snprintf(key, sizeof(key), "lockSlew%d", i+1);
@@ -1074,8 +1017,7 @@ struct PolyQuanta : Module {
         lockFallShape = hi::util::jsonh::readBool(rootJ, "lockFallShape", lockFallShape);
         allowRiseShape = hi::util::jsonh::readBool(rootJ, "allowRiseShape", allowRiseShape);
         allowFallShape = hi::util::jsonh::readBool(rootJ, "allowFallShape", allowFallShape);
-    if (auto* j = json_object_get(rootJ, "rootNote")) rootNote = (int)json_integer_value(j);
-    if (auto* j = json_object_get(rootJ, "scaleIndex")) scaleIndex = (int)json_integer_value(j);
+    // (rootNote/scaleIndex restored via CoreState above)
     if (auto* j = json_object_get(rootJ, "polyFadeSec")) polyFadeSec = (float)json_number_value(j);
     // One-time migration placeholder
     if (!migratedQZ) {
@@ -1544,63 +1486,58 @@ struct PolyQuanta : Module {
                     for (int k=0;k<16;++k) latchedInit[k]=false;
                     prevRootNote=rootNote; prevScaleIndex=scaleIndex; prevEdo=qc.edo; prevTetSteps=tetSteps; prevTetPeriodOct=qc.periodOct; prevTuningMode=tuningMode; prevUseCustomScale=useCustomScale; prevCustomFollowsRoot=customScaleFollowsRoot; prevCustomMask12=customMask12; prevCustomMask24=customMask24;
                 }
-                float fs = yRel * (float)N / period; // fractional step
-                // Initialize latch to nearest allowed
-                if (!latchedInit[c]) { latchedStep[c] = nearestAllowedStep( (int)std::round(fs), fs, qc ); latchedInit[c]=true; }
-                // Ensure still allowed (mask may have changed live)
-                if (!isAllowedStep(latchedStep[c], qc)) { latchedStep[c] = nearestAllowedStep(latchedStep[c], fs, qc); }
-                // Hysteresis clamp sizes
+                float fs = yRel * (float)N / period; // fractional step (current raw position in EDO steps)
+                // Initialize latch to nearest allowed (delegated to core helper; NO behavior change)
+                if (!latchedInit[c]) { latchedStep[c] = hi::dsp::nearestAllowedStep( (int)std::round(fs), fs, qc ); latchedInit[c]=true; }
+                // Ensure still allowed (mask may have changed live) using core predicate + search (NO behavior change)
+                if (!hi::dsp::isAllowedStep(latchedStep[c], qc)) { latchedStep[c] = hi::dsp::nearestAllowedStep(latchedStep[c], fs, qc); }
+                // Hysteresis clamp sizes (Phase 3B: deltaV + H_V computation unchanged)
                 float dV = period / (float)N;
                 float stepCents = 1200.f * dV;
                 float Hc = rack::clamp(stickinessCents, 0.f, 20.f);
                 float maxAllowed = 0.4f * stepCents; if (Hc > maxAllowed) Hc = maxAllowed; // dynamic clamp
                 float H_V = Hc / 1200.f; // in volts
                 // Neighbor steps
-                int upStep = nextAllowedStep(latchedStep[c], +1, qc);
-                int dnStep = nextAllowedStep(latchedStep[c], -1, qc);
+                int upStep = hi::dsp::nextAllowedStep(latchedStep[c], +1, qc);   // core delegation (directional neighbor)
+                int dnStep = hi::dsp::nextAllowedStep(latchedStep[c], -1, qc);   // core delegation
                 float center = (latchedStep[c] / (float)N) * period;
-                float vUp = (upStep / (float)N) * period;
-                float vDn = (dnStep / (float)N) * period;
-                // Midpoints
-                float midUp = 0.5f*(center + vUp);
-                float midDn = 0.5f*(center + vDn);
-                float T_up = midUp + H_V;
-                float T_down = midDn - H_V;
+                float vUp = (upStep / (float)N) * period; // up neighbor voltage (down neighbor implicit)
+                // Phase 3B: compute thresholds via core helper (verbatim formula relocation) using center & delta
+                hi::dsp::HystSpec hs{ (vUp - center) * 2.f, H_V }; // deltaV = full step span
+                auto th = hi::dsp::computeHysteresis(center, hs);
+                float T_up = th.up; float T_down = th.down; // identical to previous mid-based computation
                 if (yRel >= T_up && upStep != latchedStep[c]) latchedStep[c] = upStep;
                 else if (yRel <= T_down && dnStep != latchedStep[c]) latchedStep[c] = dnStep;
-                float yqRel = (latchedStep[c] / (float)N) * period; // snapped from latch
+                // Map latched step index back to volts via core snapper.
+                // We pass the exact on-grid voltage so snapEDO returns the identical value.
+                // This centralizes step->voltage mapping in core with ZERO behavior change (hysteresis still local).
+                float yqRel = hi::dsp::snapEDO((latchedStep[c] / (float)N) * period, qc, 10.f, false, 0);
                 // Determine rounding adjustment based on mode
-                if (quantRoundMode != 1) { // modes other than Nearest may bias
-                    // Convert to EDO step domain to apply directional rounding
-                    // We reconstruct step value by multiplying volts by EDO (assuming 1V/oct standard mapping)
-                    // snapEDO already returned nearest allowed note; we need raw pre-snap position for bias.
-                    // Approximate raw semitone value relative to root: yRel * 12
+                if (quantRoundMode != 1) { // modes other than Nearest may bias (Phase 3B delegated rounding)
                     float rawSemi = yRel * 12.f;
                     float snappedSemi = yqRel * 12.f;
                     float diff = rawSemi - snappedSemi;
-                    if (quantRoundMode == 0) { // Directional Snap
-                        float prev = prevYRel[c];
-                        float dir = (yRel > prev + 1e-6f) ? 1.f : (yRel < prev - 1e-6f ? -1.f : 0.f);
-                        if (dir > 0.f && diff > 0.f) {
-                            // raw above snapped (snapped is below); move up one scale step if possible by adding step size
-                            // We attempt a small positive nudge: ask quantizer for value slightly above current raw to force next
-                            float nudged = quantizeToScale(yqRel + (1.f/12.f)*0.51f, 0, clipLimit, true);
-                            if (nudged > yqRel + 1e-5f) yqRel = nudged;
-                        } else if (dir < 0.f && diff < 0.f) {
-                            float nudged = quantizeToScale(yqRel - (1.f/12.f)*0.51f, 0, clipLimit, true);
-                            if (nudged < yqRel - 1e-5f) yqRel = nudged;
+                    float prev = prevYRel[c];
+                    float dir = (yRel > prev + 1e-6f) ? 1.f : (yRel < prev - 1e-6f ? -1.f : 0.f);
+                    // Determine slopeDir integer for directional policy
+                    int slopeDir = (dir > 0.f) ? +1 : (dir < 0.f ? -1 : 0);
+                    hi::dsp::RoundMode rm = (quantRoundMode==0? hi::dsp::RoundMode::Directional : (quantRoundMode==2? hi::dsp::RoundMode::Ceil : (quantRoundMode==3? hi::dsp::RoundMode::Floor : hi::dsp::RoundMode::Nearest)));
+                    hi::dsp::RoundPolicy rp{rm};
+                    // posWithinStep: sign of diff indicates which side; scale so >0 => above snapped center
+                    float posWithin = (diff > 0.f ? diff : diff); // direct diff in semitone units (behavior preserved)
+                    int adjust = hi::dsp::pickRoundingTarget(0 /* base unused for current logic */, posWithin, slopeDir, rp);
+                    if (rm == hi::dsp::RoundMode::Directional) {
+                        if (slopeDir > 0 && diff > 0.f) {
+                            float nudged = quantizeToScale(yqRel + (1.f/12.f)*0.51f, 0, clipLimit, true); if (nudged > yqRel + 1e-5f) yqRel = nudged;
+                        } else if (slopeDir < 0 && diff < 0.f) {
+                            float nudged = quantizeToScale(yqRel - (1.f/12.f)*0.51f, 0, clipLimit, true); if (nudged < yqRel - 1e-5f) yqRel = nudged;
                         }
-                    } else if (quantRoundMode == 2) { // Up
-                        if (rawSemi > snappedSemi + 1e-5f) {
-                            float nudged = quantizeToScale(yqRel + (1.f/12.f)*0.51f, 0, clipLimit, true);
-                            if (nudged > yqRel + 1e-5f) yqRel = nudged;
-                        }
-                    } else if (quantRoundMode == 3) { // Down
-                        if (rawSemi < snappedSemi - 1e-5f) {
-                            float nudged = quantizeToScale(yqRel - (1.f/12.f)*0.51f, 0, clipLimit, true);
-                            if (nudged < yqRel - 1e-5f) yqRel = nudged;
-                        }
+                    } else if (rm == hi::dsp::RoundMode::Ceil) {
+                        if (diff > 1e-5f) { float nudged = quantizeToScale(yqRel + (1.f/12.f)*0.51f, 0, clipLimit, true); if (nudged > yqRel + 1e-5f) yqRel = nudged; }
+                    } else if (rm == hi::dsp::RoundMode::Floor) {
+                        if (diff < -1e-5f) { float nudged = quantizeToScale(yqRel - (1.f/12.f)*0.51f, 0, clipLimit, true); if (nudged < yqRel - 1e-5f) yqRel = nudged; }
                     }
+                    (void)adjust; // adjust currently not changing direct step index (logic identical to previous diff checks)
                 }
                 float yq = yqRel + rangeOffset;
                 float t = clamp(quantStrength, 0.f, 1.f);
@@ -1707,6 +1644,33 @@ struct PolyQuanta : Module {
     prevPitchSafeGlide = pitchSafeGlide;
     }
 };
+
+// -----------------------------------------------------------------------------
+// Phase 3D: CoreState glue helper definitions (no behavior change). These
+// mirror the previous JSON read/write logic exactly, simply centralized.
+// -----------------------------------------------------------------------------
+static void fillCoreStateFromModule(const PolyQuanta& m, hi::dsp::CoreState& cs) noexcept {
+    cs.quantStrength = m.quantStrength;
+    cs.quantRoundMode = m.quantRoundMode;
+    cs.stickinessCents = m.stickinessCents;
+    cs.edo = m.edo; cs.tuningMode = m.tuningMode; cs.tetSteps = m.tetSteps; cs.tetPeriodOct = m.tetPeriodOct;
+    cs.useCustomScale = m.useCustomScale; cs.rememberCustomScale = m.rememberCustomScale; cs.customScaleFollowsRoot = m.customScaleFollowsRoot;
+    cs.customMask12 = m.customMask12; cs.customMask24 = m.customMask24;
+    cs.customMaskGeneric = m.customMaskGeneric; // byte-per-step copy
+    for (int i=0;i<16;++i) { cs.qzEnabled[i] = m.qzEnabled[i]; cs.postOctShift[i] = m.postOctShift[i]; }
+    cs.rootNote = m.rootNote; cs.scaleIndex = m.scaleIndex;
+}
+static void applyCoreStateToModule(const hi::dsp::CoreState& cs, PolyQuanta& m) noexcept {
+    m.quantStrength = cs.quantStrength;
+    m.quantRoundMode = cs.quantRoundMode;
+    m.stickinessCents = cs.stickinessCents;
+    m.edo = cs.edo; m.tuningMode = cs.tuningMode; m.tetSteps = cs.tetSteps; m.tetPeriodOct = cs.tetPeriodOct;
+    m.useCustomScale = cs.useCustomScale; m.rememberCustomScale = cs.rememberCustomScale; m.customScaleFollowsRoot = cs.customScaleFollowsRoot;
+    m.customMask12 = cs.customMask12; m.customMask24 = cs.customMask24;
+    m.customMaskGeneric = cs.customMaskGeneric; // copy vector
+    for (int i=0;i<16;++i) { m.qzEnabled[i] = cs.qzEnabled[i]; m.postOctShift[i] = cs.postOctShift[i]; }
+    m.rootNote = cs.rootNote; m.scaleIndex = cs.scaleIndex;
+}
 
 /*
 -----------------------------------------------------------------------

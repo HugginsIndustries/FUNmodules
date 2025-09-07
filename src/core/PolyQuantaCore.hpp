@@ -5,6 +5,15 @@
 #include <algorithm>
 #include <cstdint>
 
+// Phase 3D: JSON bridge (verbatim relocation of quantization field packing/unpacking)
+// Provide json_t without forcing Rack dependency when building headless tests.
+// Headless tests don’t link Jansson; JSON functions are compiled out.
+#ifndef UNIT_TESTS
+#  include "plugin.hpp"   // provides json_t from Rack SDK
+#else
+struct json_t;             // forward declaration so signatures compile in tests
+#endif
+
 // PolyQuantaCore: Phase 2A extraction of pure DSP helpers from PolyQuanta.cpp.
 // IMPORTANT: All functions and constants are moved verbatim (logic, math,
 // strings) to avoid any behavior change. Original comments are preserved
@@ -51,6 +60,17 @@ float apply(float v, Mode mode, float clipLimit, bool soft);
 }}} // namespace hi::dsp::range
 
 namespace hi { namespace dsp {
+// Phase 3B: Rounding + hysteresis helper types (pure calculation only)
+enum class RoundMode { Nearest = 0, Floor = 1, Ceil = 2, Directional = 3 }; // Directional = slope-dependent snap
+struct RoundPolicy { RoundMode mode; }; // Wrap mode for future extension
+struct HystSpec { float deltaV; float H_V; }; // deltaV = step size volts, H_V = added hysteresis volts
+struct HystThresholds { float up; float down; }; // Absolute thresholds (relative domain input uses center +/- ...)
+// Compute hysteresis thresholds: T_up = center + (ΔV/2) + H_V; T_down = center - (ΔV/2) - H_V
+HystThresholds computeHysteresis(float centerVolts, const HystSpec& h) noexcept;
+// Choose target rounding step bias based on policy and slope direction.
+// baseStep: integer snapped center step; posWithinStep: raw fractional offset relative to that step (-0.5..+0.5 range semantics)
+// slopeDir: -1 descending, +1 ascending, 0 neutral; returns 0 adjust (center) or +/-1 step bias request.
+int pickRoundingTarget(int baseStep, float posWithinStep, int slopeDir, RoundPolicy pol) noexcept;
 // Quantization config and snapper supporting arbitrary period sizes (EDO/TET)
 struct QuantConfig {
 	int edo = 12; float periodOct = 1.f; int root = 0; bool useCustom = false; bool customFollowsRoot = true;
@@ -63,4 +83,47 @@ float snapEDO(float volts, const QuantConfig& qc, float boundLimit = 10.f, bool 
 bool isAllowedStep(int s, const QuantConfig& qc);
 int nextAllowedStep(int start, int dir, const QuantConfig& qc);
 int nearestAllowedStep(int sGuess, float fs, const QuantConfig& qc);
+
+// -----------------------------------------------------------------------------
+// Phase 3D: CoreState captures ONLY quantization/tuning/scale/mask/rounding/
+// hysteresis/root-alignment fields exactly as previously serialized in
+// PolyQuanta.cpp. NO new fields; types unchanged to preserve JSON identity.
+// -----------------------------------------------------------------------------
+struct CoreState {
+	// Quantization meta
+	float  quantStrength = 1.f;          // "quantStrength"
+	int    quantRoundMode = 0;           // "quantRoundMode"
+	float  stickinessCents = 5.f;        // "stickinessCents"
+	// Tuning / system
+	int    edo = 12;                     // "edo"
+	int    tuningMode = 0;               // "tuningMode"
+	int    tetSteps = 9;                 // "tetSteps"
+	float  tetPeriodOct = 0.f;           // "tetPeriodOct" (default set by module ctor; kept here for round‑trip)
+	bool   useCustomScale = false;       // "useCustomScale"
+	bool   rememberCustomScale = false;  // "rememberCustomScale"
+	bool   customScaleFollowsRoot = true;// "customScaleFollowsRoot"
+	uint32_t customMask12 = 0xFFFu;      // "customMask12"
+	uint32_t customMask24 = 0xFFFFFFu;   // "customMask24"
+	std::vector<uint8_t> customMaskGeneric; // "customMaskGeneric" + length key
+	// Per‑channel enable + octave shift
+	bool   qzEnabled[16] = {false};      // keys: qzEnabled1..qzEnabled16
+	int    postOctShift[16] = {0};       // keys: postOctShift1..postOctShift16
+	// Scale/root selection
+	int    rootNote = 0;                 // "rootNote"
+	int    scaleIndex = 0;               // "scaleIndex"
+};
+
+// Write EXACT existing keys/values (no renames, order preserved as much as possible).
+void coreToJson(json_t* root, const CoreState& s) noexcept;
+// Read SAME keys; apply defaults for missing ones. NO behavior change.
+void coreFromJson(const json_t* root, CoreState& s) noexcept;
 }} // namespace hi::dsp
+
+// -----------------------------------------------------------------------------
+// Phase 3C: Test runner forward declaration (only visible when UNIT_TESTS).
+// This keeps production builds free of the test symbol while allowing the
+// standalone console runner to link against core logic.
+// -----------------------------------------------------------------------------
+#ifdef UNIT_TESTS
+namespace pqtests { int run_core_tests(); }
+#endif
