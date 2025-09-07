@@ -12,6 +12,8 @@ LDFLAGS +=
 
 # Add .cpp files to the build (exclude legacy duplicate file)
 SOURCES += $(wildcard src/*.cpp)
+# Include core subdirectory sources (new PanelExport.cpp)
+SOURCES += $(wildcard src/core/*.cpp)
 SOURCES := $(filter-out src/PolySlewOffset16.cpp,$(SOURCES))
 
 # Add files to the ZIP package when running `make dist`

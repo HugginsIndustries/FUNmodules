@@ -418,6 +418,8 @@ static inline bool exportOverlay(const std::string& moduleName, float wMM, float
 }
 }}} // namespace hi::ui::overlay
 
+#include "core/PanelExport.hpp" // extracted panel snapshot exporter (included after overlay definitions)
+
 namespace hi { namespace ui { namespace dual {
 template<typename T>
 struct DualBank { T a{}; T b{}; bool mode = false; void syncOnToggle(float& knobVal) const { knobVal = mode ? (float)b : (float)a; } };
@@ -2384,115 +2386,8 @@ struct PolyQuantaWidget : ModuleWidget {
         }));
     // Export richer panel snapshot SVG (panel artwork + component approximations)
     menu->addChild(rack::createMenuItem("Export layout SVG (user folder)", "", [this]{
-            // This exporter embeds the original panel SVG contents and overlays simplified
-            // vector representations of current controls (knobs with pointer angle, switches,
-            // buttons, jacks, bi‑color LEDs). Useful for documentation / panel iteration.
-            const float pxPerMM = RACK_GRID_WIDTH / 5.08f; // Rack constant: 1 HP = 5.08 mm
-            const float wMM = box.size.x / pxPerMM;
-            const float hMM = RACK_GRID_HEIGHT / pxPerMM;
-
-            // Load panel svg file
-            std::string panelPath = asset::plugin(pluginInstance, "res/PolyQuanta.svg");
-            std::ifstream pf(panelPath, std::ios::binary);
-            std::string panelSrc;
-            if (pf) panelSrc.assign(std::istreambuf_iterator<char>(pf), std::istreambuf_iterator<char>());
-
-            auto stripOuterSvg = [](const std::string& src)->std::string {
-                size_t open = src.find("<svg"); if (open == std::string::npos) return src;
-                size_t gt = src.find('>', open); if (gt == std::string::npos) return src;
-                size_t close = src.rfind("</svg"); if (close == std::string::npos || close <= gt) return src.substr(gt+1);
-                return src.substr(gt+1, close - (gt+1));
-            };
-            std::string panelInner = stripOuterSvg(panelSrc);
-
-            // Output directory & file
-            std::string dir = rack::asset::user(rack::string::f("%s/overlays", pluginInstance->slug.c_str()));
-            rack::system::createDirectories(dir);
-            std::string outPath = dir + "/PolyQuanta-panel-snapshot.svg";
-            std::ofstream out(outPath, std::ios::binary); if(!out) return;
-
-            // No escaping helper needed (no dynamic text emitted)
-            auto pxToMM = [pxPerMM](float px){ return px / pxPerMM; };
-            // No textual value overlays (user requested components only)
-
-            out << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
-            out << rack::string::f("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%.3fmm\" height=\"%.3fmm\" viewBox=\"0 0 %.3f %.3f\" font-family=\"ShareTechMono,monospace\" font-size=\"3.2\" stroke-linejoin=\"round\" stroke-linecap=\"round\">\n", wMM, hMM, wMM, hMM);
-         out << "  <defs>\n"
-             "    <style><![CDATA[\n"
-             "      .knob-body{fill:#222;stroke:#888;stroke-width:0.3}\n"
-             "      .knob-pointer{stroke:#ffb300;stroke-width:0.45}\n"
-             "      .jack{fill:#111;stroke:#5c6bc0;stroke-width:0.35}\n"
-             "      .btn{fill:#303030;stroke:#aaa;stroke-width:0.35}\n"
-             "      .sw{fill:#252525;stroke:#ba68c8;stroke-width:0.35}\n"
-             "      .led{fill:#000}\n"
-             "      .panel-group *{vector-effect:non-scaling-stroke}\n"
-             "    ]]></style>\n"
-             "  </defs>\n";
-            out << "  <g class=\"panel-group\" id=\"panelArtwork\">\n" << panelInner << "\n  </g>\n";
-            out << "  <g id=\"components\">\n";
-
-        // Iterate module children producing simplified geometry only
-            for (Widget* w : children) {
-                if(!w) continue;
-                Vec center = w->box.getCenter();
-                float cxMM = pxToMM(center.x);
-                float cyMM = pxToMM(center.y);
-                std::string cls = typeid(*w).name();
-
-                if (dynamic_cast<LightWidget*>(w)) {
-            // Single black LED at actual center
-            float r = 1.2f; // approximate radius
-            out << rack::string::f("    <circle class=\"led\" cx=\"%.3f\" cy=\"%.3f\" r=\"%.3f\"/>\n", cxMM, cyMM, r);
-                    continue;
-                }
-
-                if (auto* pw = dynamic_cast<ParamWidget*>(w)) {
-                    float r = pxToMM(std::max(w->box.size.x, w->box.size.y) * 0.5f);
-                    bool isKnob = (cls.find("Knob") != std::string::npos) || (cls.find("Trimpot") != std::string::npos);
-                    bool isSwitch = (cls.find("CKSS") != std::string::npos) || (cls.find("Switch") != std::string::npos);
-                    bool isButton = (cls.find("Button") != std::string::npos);
-                    rack::engine::ParamQuantity* pq = pw->getParamQuantity();
-                    if (isKnob) {
-                        float bodyR = r * 0.95f;
-                        out << rack::string::f("    <circle class=\"knob-body\" cx=\"%.3f\" cy=\"%.3f\" r=\"%.3f\"/>\n", cxMM, cyMM, bodyR);
-                        if (pq) {
-                            float v = pq->getValue();
-                            float norm = 0.f;
-                            float minV = pq->getMinValue();
-                            float maxV = pq->getMaxValue();
-                            if (maxV > minV) norm = (v - minV) / (maxV - minV);
-                            float angleDeg = -150.f + 300.f * rack::clamp(norm, 0.f, 1.f);
-                            float ang = angleDeg * (float)M_PI / 180.f;
-                            float pr = bodyR * 0.78f;
-                            float px2 = cxMM + pr * std::sin(ang);
-                            float py2 = cyMM - pr * std::cos(ang);
-                            out << rack::string::f("    <line class=\"knob-pointer\" x1=\"%.3f\" y1=\"%.3f\" x2=\"%.3f\" y2=\"%.3f\"/>\n", cxMM, cyMM, px2, py2);
-                        }
-                        continue;
-                    }
-                    if (isSwitch) {
-                        float wMMb = pxToMM(w->box.size.x);
-                        float hMMb = pxToMM(w->box.size.y);
-                        out << rack::string::f("    <rect class=\"sw\" x=\"%.3f\" y=\"%.3f\" width=\"%.3f\" height=\"%.3f\" rx=\"0.8\" ry=\"0.8\"/>\n", cxMM - wMMb*0.5f, cyMM - hMMb*0.5f, wMMb, hMMb);
-                        continue;
-                    }
-                    if (isButton) {
-                        out << rack::string::f("    <circle class=\"btn\" cx=\"%.3f\" cy=\"%.3f\" r=\"%.3f\"/>\n", cxMM, cyMM, r*0.85f);
-                        continue;
-                    }
-                    // Generic param fallback
-                    out << rack::string::f("    <circle class=\"knob-body\" cx=\"%.3f\" cy=\"%.3f\" r=\"%.3f\"/>\n", cxMM, cyMM, r*0.6f);
-                    continue;
-                }
-
-                if (dynamic_cast<PortWidget*>(w)) {
-                    float rr = pxToMM(std::max(w->box.size.x, w->box.size.y) * 0.5f) * 0.85f;
-                    out << rack::string::f("    <circle class=\"jack\" cx=\"%.3f\" cy=\"%.3f\" r=\"%.3f\"/>\n", cxMM, cyMM, rr);
-                    continue;
-                }
-            }
-            out << "  </g>\n";
-            out << "</svg>\n";
+            // Delegated to extracted implementation (behavior identical to original inline code).
+            PanelExport::exportPanelSnapshot(this, "PolyQuanta", "res/PolyQuanta.svg");
         }));
     // Randomize
     menu->addChild(rack::createSubmenuItem("Randomize", "", [m](rack::ui::Menu* sm){
