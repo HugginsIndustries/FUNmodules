@@ -131,4 +131,40 @@ bool exportPanelSnapshot(rack::app::ModuleWidget* mw,
     return true;
 }
 
+// ----------------------------------------------------------------------------
+// Overlay exporter implementation (moved from PolyQuanta.cpp). Produces a
+// minimalist SVG containing the panel outline plus marker circles and cross
+// hairs for each provided Marker. File naming, CSS classes, and structure are
+// preserved exactly ("<moduleName>-overlay.svg"). Units are millimeters.
+// ----------------------------------------------------------------------------
+bool exportOverlay(const std::string& moduleName,
+                float wMM,
+                float hMM,
+                const std::vector<hi::ui::overlay::Marker>& marks,
+                const std::string& outPath) {
+    std::string dir = ::rack::asset::user(::rack::string::f("%s/overlays", ::pluginInstance->slug.c_str()));
+    ::rack::system::createDirectories(dir);
+    std::string path = outPath.empty() ? (dir + "/" + moduleName + "-overlay.svg") : outPath;
+    std::ofstream f(path, std::ios::binary); if (!f) return false;
+    f << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+    f << ::rack::string::f("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%.3fmm\" height=\"%.3fmm\" viewBox=\"0 0 %.3f %.3f\">\n", wMM, hMM, wMM, hMM);
+    f << "  <defs>\n"
+        "    <style><![CDATA[\n"
+        "      .outline{fill:none;stroke:#888;stroke-width:0.3}\n"
+        "      .knob{fill:none;stroke:#ff9800;stroke-width:0.3}\n"
+        "      .jack{fill:none;stroke:#3f51b5;stroke-width:0.3}\n"
+        "      .led{fill:none;stroke:#4caf50;stroke-width:0.25}\n"
+        "      .sw{fill:none;stroke:#9c27b0;stroke-width:0.25}\n"
+        "      .btn{fill:none;stroke:#795548;stroke-width:0.3}\n"
+        "      .screw{fill:none;stroke:#607d8b;stroke-width:0.25}\n"
+        "      .x{stroke:#999;stroke-width:0.2;stroke-dasharray:0.6,0.6}\n"
+        "    ]]></style>\n"
+        "  </defs>\n";
+    f << ::rack::string::f("  <rect class=\"outline\" x=\"0\" y=\"0\" width=\"%.3f\" height=\"%.3f\"/>\n", wMM, hMM);
+    auto cross = [&](float x, float y){ const float c = 2.5f; f << ::rack::string::f("  <path class=\"x\" d=\"M %.3f %.3f H %.3f M %.3f %.3f V %.3f\"/>\n", x - c, y, x + c, x, y - c, y + c); };
+    auto circle = [&](const char* cls, float x, float y, float r){ f << ::rack::string::f("  <circle class=\"%s\" cx=\"%.3f\" cy=\"%.3f\" r=\"%.3f\"/>\n", cls, x, y, r); };
+    for (const auto& m : marks) { circle(hi::ui::overlay::cls(m.kind), m.xMM, m.yMM, m.rMM); cross(m.xMM, m.yMM); }
+    f << "</svg>\n"; return true;
+}
+
 } // namespace PanelExport

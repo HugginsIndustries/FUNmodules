@@ -81,120 +81,11 @@ namespace hi { namespace music { namespace mos {
 // Inlined helpers
 // -----------------------------------------------------------------------------
 
-namespace hi { namespace consts {
-// Global reusable constants — C++11 friendly
-static constexpr float MAX_VOLT_CLAMP = 10.f;   // Output clamp (±10 V typical)
-static constexpr float LED_SCALE_V    = 10.f;   // LED normalization divisor
-static constexpr float MIN_SEC        = 1e-4f;  // ~0.1 ms → treat as "no slew"
-static constexpr float MAX_SEC        = 10.f;   // 10 s max
-static constexpr float EPS_ERR        = 1e-4f;  // tiny error epsilon for early-out and guards
-static constexpr float RATE_EPS       = 1e-3f;  // minimal rate change to update SlewLimiter
-}} // namespace hi::consts
+// (Pure DSP helpers moved to core/PolyQuantaCore.*: hi::consts, hi::dsp::clip, hi::dsp::glide, hi::dsp::range)
+#include "core/PolyQuantaCore.hpp"
+#include "core/ScaleDefs.hpp" // centralized 12-EDO / 24-EDO scale tables
 
-namespace hi { namespace dsp { namespace clip {
-// Hard clamp to ±maxV
-static inline float hard(float v, float maxV) {
-    if (v >  maxV) return  maxV;
-    if (v < -maxV) return -maxV;
-    return v;
-}
-// Soft clip with 1 V knee approaching ±maxV without compressing interior range.
-// Behavior: linear pass-through until |v| exceeds (maxV - knee). Within the last
-// knee volts, apply a smooth cosine easing to reach exactly ±maxV. Anything
-// beyond ±maxV hard-clips. This preserves precise offsets (e.g. +10 V stays +10 V)
-// while still avoiding a sharp corner at the ceiling when soft clipping is chosen.
-static inline float soft(float v, float maxV) {
-    const float knee = 1.f; // knee width in volts
-    float a = std::fabs(v);
-    if (a <= maxV - knee) return v;          // fully linear region
-    float sign = (v >= 0.f) ? 1.f : -1.f;
-    if (a >= maxV) return sign * maxV;       // clamp beyond limit
-    // Smooth knee: a in (maxV - knee, maxV)
-    float x = (a - (maxV - knee)) / knee;    // x in (0,1)
-    // Cosine ease-in (smooth, monotonic, zero first derivative at boundaries after scaling)
-    const float PI = 3.14159265358979323846f;
-    float shape = 0.5f * (1.f - std::cos(PI * x));
-    float out = (maxV - knee) + shape * knee;
-    return sign * out;
-}
-}}} // namespace hi::dsp::clip
-
-namespace hi { namespace dsp { namespace glide {
-// 1 V/oct helpers
-static inline float voltsToSemitones(float v) { return v * 12.f; }
-static inline float semitonesToVolts(float s) { return s / 12.f; }
-// Shape helpers: map shape in [-1,1] to expo/log-ish multiplier parameters.
-struct ShapeParams { float k = 0.f; float c = 1.f; bool negative = false; };
-static inline ShapeParams makeShape(float shape, float kPos = 6.f, float kNeg = 8.f) {
-    ShapeParams p;
-    if (std::fabs(shape) < 1e-6f) { p.k = 0.f; p.c = 1.f; p.negative = false; return p; }
-    if (shape < 0.f) { p.k = kNeg * (-shape); p.c = (1.f - std::exp(-p.k)) / p.k; p.negative = true; }
-    else { p.k = kPos * shape; p.c = 1.f + 0.5f * p.k; p.negative = false; }
-    return p;
-}
-// u in [0,1] is normalized error progress. Returns multiplier ≥ EPS.
-static inline float shapeMul(float u, const ShapeParams& p, float eps = 1e-6f) {
-    if (p.k == 0.f) return 1.f;
-    float m = p.negative ? std::exp(p.k * u) : 1.f / (1.f + p.k * u);
-    float out = p.c * m;
-    return out < eps ? eps : out;
-}
-}}} // namespace hi::dsp::glide
-
-namespace hi { namespace music {
-struct Scale { const char* name; unsigned int mask; };
-// 12-EDO scales (bit 0 = root degree)
-static constexpr int NUM_SCALES12 = 14;
-static inline const Scale* scales12() {
-    static const Scale S[] = {
-    {"Chromatic",      0xFFFu},
-    // Bit 0 = root (0 st), increasing by semitone up to bit 11 = 11 st
-    {"Major (Ionian)", (1u<<0)|(1u<<2)|(1u<<4)|(1u<<5)|(1u<<7)|(1u<<9)|(1u<<11)},
-    {"Natural minor",  (1u<<0)|(1u<<2)|(1u<<3)|(1u<<5)|(1u<<7)|(1u<<8)|(1u<<10)},
-    {"Harmonic minor", (1u<<0)|(1u<<2)|(1u<<3)|(1u<<5)|(1u<<7)|(1u<<8)|(1u<<11)},
-    {"Melodic minor",  (1u<<0)|(1u<<2)|(1u<<3)|(1u<<5)|(1u<<7)|(1u<<9)|(1u<<11)},
-    {"Pentatonic maj", (1u<<0)|(1u<<2)|(1u<<4)|(1u<<7)|(1u<<9)},
-    {"Pentatonic min", (1u<<0)|(1u<<3)|(1u<<5)|(1u<<7)|(1u<<10)},
-    // Common hexatonic blues: 1 b3 4 b5 5 b7 (plus root)
-    {"Blues",          (1u<<0)|(1u<<3)|(1u<<5)|(1u<<6)|(1u<<7)|(1u<<10)},
-    {"Dorian",         (1u<<0)|(1u<<2)|(1u<<3)|(1u<<5)|(1u<<7)|(1u<<9)|(1u<<10)},
-    {"Mixolydian",     (1u<<0)|(1u<<2)|(1u<<4)|(1u<<5)|(1u<<7)|(1u<<9)|(1u<<10)},
-    {"Phrygian",       (1u<<0)|(1u<<1)|(1u<<3)|(1u<<5)|(1u<<7)|(1u<<8)|(1u<<10)},
-    {"Lydian",         (1u<<0)|(1u<<2)|(1u<<4)|(1u<<6)|(1u<<7)|(1u<<9)|(1u<<11)},
-    {"Locrian",        (1u<<0)|(1u<<1)|(1u<<3)|(1u<<5)|(1u<<6)|(1u<<8)|(1u<<10)},
-    {"Whole tone",     (1u<<0)|(1u<<2)|(1u<<4)|(1u<<6)|(1u<<8)|(1u<<10)}
-    };
-    return S;
-}
-// 24-EDO preset scales (bit 0 = root; masks are musical approximations)
-static constexpr int NUM_SCALES24 = 7;
-static inline const Scale* scales24() {
-    static const Scale S[] = {
-        {"Quarter-tone Major", (
-            (1u<<0)  | (1u<<4)  | (1u<<8)  | (1u<<10) | (1u<<14) | (1u<<18) | (1u<<22)
-        )},
-        {"Chromatic Blues (24)", (
-            (1u<<0)  | (1u<<6)  | (1u<<10) | (1u<<12) | (1u<<14) | (1u<<20)
-        )},
-        {"Quarter-tone Maqam (Rast)", (
-            (1u<<0)  | (1u<<4)  | (1u<<7)  | (1u<<10) | (1u<<14) | (1u<<18) | (1u<<21)
-        )},
-        {"Neutral 3rd Pentatonic (Maj)", (
-            (1u<<0)  | (1u<<4)  | (1u<<7)  | (1u<<14) | (1u<<18)
-        )},
-        {"Neutral 3rd Pentatonic (Min)", (
-            (1u<<0)  | (1u<<7)  | (1u<<10) | (1u<<14) | (1u<<20)
-        )},
-        {"Porcupine", (
-            (1u<<0)  | (1u<<3)  | (1u<<6)  | (1u<<10) | (1u<<13) | (1u<<16) | (1u<<20) | (1u<<23)
-        )},
-        {"Quarter-tone Whole-tone", (
-            (1u<<0)  | (1u<<4)  | (1u<<8)  | (1u<<12) | (1u<<16) | (1u<<20)
-        )}
-    };
-    return S;
-}
-}} // namespace hi::music
+// (Scale defs moved to core/ScaleDefs.* — single source of truth)
 
 namespace hi { namespace music { namespace edo {
 // Curated EDO presets grouped by usefulness
@@ -225,26 +116,7 @@ static inline const std::vector<Tet>& carlos() {
 }
 }}} // namespace hi::music::tets
 
-namespace hi { namespace dsp { namespace range {
-enum class Mode { Clip = 0, Scale = 1 };
-// Map a UI index to a half-range (±limit) in volts.
-static inline float clipLimitFromIndex(int idx) {
-    switch (idx) {
-        case 0: return 10.f; case 1: return 7.5f; case 2: return 5.f;
-        case 3: return 2.5f; case 4: return 1.f;  case 5: return 0.5f;
-    }
-    return 10.f;
-}
-// Apply pre-quant range handling around 0V only.
-static inline float apply(float v, Mode mode, float clipLimit, bool soft) {
-    if (mode == Mode::Clip) {
-        return soft ? clip::soft(v, clipLimit) : rack::clamp(v, -clipLimit, clipLimit);
-    }
-    float s = clipLimit / hi::consts::MAX_VOLT_CLAMP; // Scale mode
-    float vs = v * s;
-    return rack::clamp(vs, -clipLimit, clipLimit);
-}
-}}} // namespace hi::dsp::range
+// (Range helpers moved to core)
 
 namespace hi { namespace dsp { namespace strum {
 enum class Mode { Up = 0, Down = 1, Random = 2 };
@@ -383,42 +255,9 @@ static inline void setBipolar(rack::engine::Light& g, rack::engine::Light& r, fl
 }
 }}} // namespace hi::ui::led
 
-namespace hi { namespace ui { namespace overlay {
-enum class Kind { Knob, Jack, Led, Button, Switch, Screw };
-struct Marker { Kind kind; float xMM; float yMM; float rMM; };
-inline const char* cls(Kind k) {
-    switch (k) { case Kind::Knob: return "knob"; case Kind::Jack: return "jack"; case Kind::Led: return "led";
-        case Kind::Button: return "btn"; case Kind::Switch: return "sw"; case Kind::Screw: return "screw"; }
-    return "mark";
-}
-static inline bool exportOverlay(const std::string& moduleName, float wMM, float hMM, const std::vector<Marker>& marks, const std::string& outPath = "") {
-    std::string dir = rack::asset::user(rack::string::f("%s/overlays", pluginInstance->slug.c_str()));
-    rack::system::createDirectories(dir);
-    std::string path = outPath.empty() ? (dir + "/" + moduleName + "-overlay.svg") : outPath;
-    std::ofstream f(path, std::ios::binary); if (!f) return false;
-    f << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
-    f << rack::string::f("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%.3fmm\" height=\"%.3fmm\" viewBox=\"0 0 %.3f %.3f\">\n", wMM, hMM, wMM, hMM);
-    f << "  <defs>\n"
-         "    <style><![CDATA[\n"
-         "      .outline{fill:none;stroke:#888;stroke-width:0.3}\n"
-         "      .knob{fill:none;stroke:#ff9800;stroke-width:0.3}\n"
-         "      .jack{fill:none;stroke:#3f51b5;stroke-width:0.3}\n"
-         "      .led{fill:none;stroke:#4caf50;stroke-width:0.25}\n"
-         "      .sw{fill:none;stroke:#9c27b0;stroke-width:0.25}\n"
-         "      .btn{fill:none;stroke:#795548;stroke-width:0.3}\n"
-         "      .screw{fill:none;stroke:#607d8b;stroke-width:0.25}\n"
-         "      .x{stroke:#999;stroke-width:0.2;stroke-dasharray:0.6,0.6}\n"
-         "    ]]></style>\n"
-         "  </defs>\n";
-    f << rack::string::f("  <rect class=\"outline\" x=\"0\" y=\"0\" width=\"%.3f\" height=\"%.3f\"/>\n", wMM, hMM);
-    auto cross = [&](float x, float y){ const float c = 2.5f; f << rack::string::f("  <path class=\"x\" d=\"M %.3f %.3f H %.3f M %.3f %.3f V %.3f\"/>\n", x - c, y, x + c, x, y - c, y + c); };
-    auto circle = [&](const char* cls, float x, float y, float r){ f << rack::string::f("  <circle class=\"%s\" cx=\"%.3f\" cy=\"%.3f\" r=\"%.3f\"/>\n", cls, x, y, r); };
-    for (const auto& m : marks) { circle(cls(m.kind), m.xMM, m.yMM, m.rMM); cross(m.xMM, m.yMM); }
-    f << "</svg>\n"; return true;
-}
-}}} // namespace hi::ui::overlay
-
-#include "core/PanelExport.hpp" // extracted panel snapshot exporter (included after overlay definitions)
+// Overlay exporter moved to core/PanelExport.* (a backwards-compatible inline
+// forwarder for hi::ui::overlay::exportOverlay now lives in PanelExport.hpp).
+#include "core/PanelExport.hpp" // panel snapshot + overlay exporters
 
 namespace hi { namespace ui { namespace dual {
 template<typename T>
@@ -436,82 +275,7 @@ static inline void writeBool(::json_t* root, const char* key, bool value) { json
 static inline bool readBool(::json_t* root, const char* key, bool def) { if (!root) return def; if (auto* j = json_object_get(root, key)) { return json_boolean_value(j); } return def; }
 }}} // namespace hi::util::jsonh
 
-namespace hi { namespace dsp {
-// Quantization config and snapper supporting arbitrary period sizes (EDO/TET)
-struct QuantConfig {
-    int edo = 12; float periodOct = 1.f; int root = 0; bool useCustom = false; bool customFollowsRoot = true;
-    uint32_t customMask12 = 0xFFFu; uint32_t customMask24 = 0xFFFFFFu; int scaleIndex = 0;
-    const uint8_t* customMaskGeneric = nullptr; int customMaskLen = 0;
-};
-static inline float snapEDO(float volts, const QuantConfig& qc, float boundLimit = 10.f, bool boundToLimit = false, int shiftSteps = 0) {
-    int N = (qc.edo <= 0) ? 12 : qc.edo; float period = (qc.periodOct > 0.f) ? qc.periodOct : 1.f;
-    float fs = volts * (float)N / period; int root = (qc.root + (shiftSteps % N) + N) % N;
-    auto isAllowed = [&](int s) -> bool {
-        if (N <= 0)
-            return true;
-        int pc = s % N;
-        if (pc < 0)
-            pc += N;
-        if (!qc.useCustom) {
-            if (N == 12) { const auto* S = hi::music::scales12(); int idx = (qc.scaleIndex >= 0 && qc.scaleIndex < hi::music::NUM_SCALES12) ? qc.scaleIndex : 0; unsigned int base = S[idx].mask; int idxBit = (pc - root) % N; if (idxBit < 0) idxBit += N; return ((base >> idxBit) & 1u) != 0u; }
-            else if (N == 24) { const auto* S = hi::music::scales24(); int idx = (qc.scaleIndex >= 0 && qc.scaleIndex < hi::music::NUM_SCALES24) ? qc.scaleIndex : 0; unsigned int base = S[idx].mask; int idxBit = (pc - root) % N; if (idxBit < 0) idxBit += N; return ((base >> idxBit) & 1u) != 0u; }
-            return true;
-        } else {
-            if (N == 12) { unsigned int base = qc.customMask12; if (qc.customFollowsRoot) { int idxBit = (pc - root) % N; if (idxBit < 0) idxBit += N; return ((base >> idxBit) & 1u) != 0u; } return ((base >> pc) & 1u) != 0u; }
-            else if (N == 24) { unsigned int base = qc.customMask24; if (qc.customFollowsRoot) { int idxBit = (pc - root) % N; if (idxBit < 0) idxBit += N; return ((base >> idxBit) & 1u) != 0u; } return ((base >> pc) & 1u) != 0u; }
-            else { if (!qc.customMaskGeneric || qc.customMaskLen < N) { return true; } int idxBit = qc.customFollowsRoot ? ((pc - root) % N) : pc; if (idxBit < 0) idxBit += N; uint8_t bit = qc.customMaskGeneric[idxBit]; return bit != 0; }
-        }
-    };
-    bool anyAllowed = false; for (int k = 0; k < N; ++k) { if (isAllowed(k)) { anyAllowed = true; break; } }
-    if (!anyAllowed) { int s = (int)std::round(fs); return (s / (float)N) * period; }
-    int sMin = boundToLimit ? (int)std::ceil(-boundLimit * (float)N / period) : (std::numeric_limits<int>::min() / 4);
-    int sMax = boundToLimit ? (int)std::floor( boundLimit * (float)N / period) : (std::numeric_limits<int>::max() / 4);
-    int s0 = (int)std::round(fs); if (s0 < sMin) s0 = sMin; else if (s0 > sMax) s0 = sMax;
-    int best = s0; float bestDist = 1e9f;
-    for (int d = 0; d <= N; ++d) {
-        int c1 = s0 + d, c2 = s0 - d; if (c1 > sMax) c1 = sMax + 1; if (c2 < sMin) c2 = sMin - 1;
-        if (isAllowed(c1)) { float dist = std::fabs(fs - (float)c1); if (dist < bestDist) { bestDist = dist; best = c1; if (d == 0) break; } }
-        if (d > 0 && isAllowed(c2)) { float dist = std::fabs(fs - (float)c2); if (dist < bestDist) { bestDist = dist; best = c2; } }
-        if (bestDist < 0.5f * 1e-4f) break;
-    }
-    return (best / (float)N) * period;
-}
-// Return whether pitch-class step s is allowed under qc (root/mask aware)
-static inline bool isAllowedStep(int s, const QuantConfig& qc) {
-    int N = (qc.edo <= 0) ? 12 : qc.edo; if (N <= 0) return true; float period = (qc.periodOct > 0.f) ? qc.periodOct : 1.f; (void)period;
-    int root = qc.root % N; if (root < 0) root += N;
-    auto allowedPc = [&](int pc)->bool {
-        if (!qc.useCustom) {
-            if (N == 12) { const auto* S = hi::music::scales12(); int idx = (qc.scaleIndex >= 0 && qc.scaleIndex < hi::music::NUM_SCALES12) ? qc.scaleIndex : 0; unsigned int base = S[idx].mask; int idxBit = (pc - root) % N; if (idxBit < 0) idxBit += N; return ((base >> idxBit) & 1u) != 0u; }
-            else if (N == 24) { const auto* S = hi::music::scales24(); int idx = (qc.scaleIndex >= 0 && qc.scaleIndex < hi::music::NUM_SCALES24) ? qc.scaleIndex : 0; unsigned int base = S[idx].mask; int idxBit = (pc - root) % N; if (idxBit < 0) idxBit += N; return ((base >> idxBit) & 1u) != 0u; }
-            return true;
-        } else {
-            if (N == 12) { unsigned int base = qc.customMask12; if (qc.customFollowsRoot) { int idxBit = (pc - root) % N; if (idxBit < 0) idxBit += N; return ((base >> idxBit) & 1u) != 0u; } return ((base >> pc) & 1u) != 0u; }
-            else if (N == 24) { unsigned int base = qc.customMask24; if (qc.customFollowsRoot) { int idxBit = (pc - root) % N; if (idxBit < 0) idxBit += N; return ((base >> idxBit) & 1u) != 0u; } return ((base >> pc) & 1u) != 0u; }
-            else { if (!qc.customMaskGeneric || qc.customMaskLen < N) { return true; } int idxBit = qc.customFollowsRoot ? ((pc - root) % N) : pc; if (idxBit < 0) idxBit += N; uint8_t bit = qc.customMaskGeneric[idxBit]; return bit != 0; }
-        }
-    };
-    int pc = s % N; if (pc < 0) pc += N; return allowedPc(pc);
-}
-static inline int nextAllowedStep(int start, int dir, const QuantConfig& qc) {
-    int N = (qc.edo <= 0) ? 12 : qc.edo; if (N <= 0) return start; if (dir == 0) return start; // invalid dir
-    // Search outward up to N steps to avoid infinite loop if no allowed
-    for (int k = 1; k <= N; ++k) {
-        int s = start + dir * k;
-        if (isAllowedStep(s, qc)) return s;
-    }
-    return start;
-}
-static inline int nearestAllowedStep(int sGuess, float fs, const QuantConfig& qc) {
-    int N = (qc.edo <= 0) ? 12 : qc.edo; if (N <= 0) return 0; int s0 = (int)std::round(fs); int best = s0; float bestDist = 1e9f;
-    for (int d = 0; d <= N; ++d) {
-        int c1 = s0 + d, c2 = s0 - d; if (isAllowedStep(c1, qc)) { float dist = std::fabs(fs - (float)c1); if (dist < bestDist) { bestDist = dist; best = c1; if (d == 0) break; } }
-        if (d > 0 && isAllowedStep(c2, qc)) { float dist = std::fabs(fs - (float)c2); if (dist < bestDist) { bestDist = dist; best = c2; } }
-        if (bestDist < 1e-6f) break;
-    }
-    return best;
-}
-}} // namespace hi::dsp
+// (QuantConfig + snapEDO moved to core/PolyQuantaCore.*)
 
 namespace hi { namespace dsp { namespace polytrans {
 enum Phase { TRANS_STABLE = 0, TRANS_FADE_OUT, TRANS_FADE_IN };
