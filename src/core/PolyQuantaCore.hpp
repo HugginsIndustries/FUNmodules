@@ -4,6 +4,10 @@
 #include <string>
 #include <algorithm>
 #include <cstdint>
+// (Relocated helpers add'l includes)
+#include <map>
+#include <unordered_set>
+#include <set>
 
 // Phase 3D: JSON bridge (verbatim relocation of quantization field packing/unpacking)
 // Provide json_t without forcing Rack dependency when building headless tests.
@@ -118,6 +122,25 @@ void coreToJson(json_t* root, const CoreState& s) noexcept;
 // Read SAME keys; apply defaults for missing ones. NO behavior change.
 void coreFromJson(const json_t* root, CoreState& s) noexcept;
 }} // namespace hi::dsp
+
+// -----------------------------------------------------------------------------
+// Phase 4A (relocated): MOS (Moment of Symmetry) helpers and lightweight poly
+// width helper moved from top of PolyQuanta.cpp. Behavior unchanged. Public
+// surface kept minimal (only symbols referenced by PolyQuanta.cpp exposed).
+// -----------------------------------------------------------------------------
+namespace hi { namespace music { namespace mos {
+// Curated generator-count suggestions per division N (read-only map)
+extern const std::map<int, std::vector<int>> curated; // relocated
+int gcdInt(int a, int b);                              // relocated
+std::vector<int> generateCycle(int N, int g, int m);   // relocated
+bool isMOS(const std::vector<int>& pcs, int N);        // relocated
+int findBestGenerator(int N, int m);                   // relocated
+std::string patternLS(const std::vector<int>& pcs, int N); // relocated
+}}} // namespace hi::music::mos
+
+namespace hi { namespace dsp { namespace poly {
+int processWidth(bool forcePolyOut, bool inputConnected, int inputChannels, int maxCh = 16); // relocated
+}}} // namespace hi::dsp::poly
 
 // -----------------------------------------------------------------------------
 // Phase 3C: Test runner forward declaration (only visible when UNIT_TESTS).
