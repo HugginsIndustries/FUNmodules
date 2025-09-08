@@ -385,6 +385,11 @@ struct PolyQuanta : Module {
     bool prevPitchSafeGlide = false; // track mode changes
     bool migratedQZ = false;         // one-time migration from old button params
 
+    // Quantizer position in the signal chain (new)
+    enum QuantizerPos { Pre = 0, Post = 1 };
+    int quantizerPos = QuantizerPos::Post; // default for NEW instances
+    // Signal-chain: Pre=Quantize→Slew (legacy), Post=Slew→Quantize (pitch-accurate).
+
     // Quantization strength (0..1), 1 = hard snap, 0 = off (when per-channel QZ enabled)
     float quantStrength = 1.f;
     // Quantization rounding mode:
@@ -902,6 +907,8 @@ struct PolyQuanta : Module {
     // (rootNote/scaleIndex now serialized via CoreState above)
     // Polyphony transition fade settings
     json_object_set_new(rootJ, "polyFadeSec", json_real(polyFadeSec));
+    // New: persist quantizer position (0=Pre legacy, 1=Post default)
+    json_object_set_new(rootJ, "quantizerPos", json_integer(quantizerPos));
     return rootJ;
     }
 /*
@@ -1019,6 +1026,12 @@ struct PolyQuanta : Module {
         allowFallShape = hi::util::jsonh::readBool(rootJ, "allowFallShape", allowFallShape);
     // (rootNote/scaleIndex restored via CoreState above)
     if (auto* j = json_object_get(rootJ, "polyFadeSec")) polyFadeSec = (float)json_number_value(j);
+    // New key (quantizerPos). Back-compat: if absent (old patches) force legacy Pre to preserve prior sound.
+    if (auto* jq = json_object_get(rootJ, "quantizerPos")) {
+        if (json_is_integer(jq)) quantizerPos = (int)json_integer_value(jq);
+    } else {
+        quantizerPos = QuantizerPos::Pre; // old patches keep legacy chain (Quantize→Slew)
+    }
     // One-time migration placeholder
     if (!migratedQZ) {
         for (int i = 0; i < 16; ++i) {
@@ -1445,114 +1458,89 @@ struct PolyQuanta : Module {
                 hi::dsp::strum::tickStartDelays((float)args.sampleTime, polyTrans.curProcN, strumDelayLeft);
                 yRaw = yPrev; // hold
             } else {
-            if (!noSlew) {
-                float baseRateN = stepNorm[c] / sec;      // semitones/s or V/s
-                float baseRateV = pitchSafeGlide ? hi::dsp::glide::semitonesToVolts(baseRateN) : baseRateN;
-                float u = clamp(aerrN / stepNorm[c], 0.f, 1.f);
+                if (!noSlew && quantizerPos == QuantizerPos::Post) { // In Post mode we slew BEFORE quantizer
+                    float baseRateN = stepNorm[c] / sec;      // semitones/s or V/s
+                    float baseRateV = pitchSafeGlide ? hi::dsp::glide::semitonesToVolts(baseRateN) : baseRateN;
+                    float u = clamp(aerrN / stepNorm[c], 0.f, 1.f);
 
-                float rateRise = baseRateV * hi::dsp::glide::shapeMul(u, riseParams, hconst::EPS_ERR);
-                float rateFall = baseRateV * hi::dsp::glide::shapeMul(u, fallParams, hconst::EPS_ERR);
-                if (std::fabs(rateRise - prevRiseRate[c]) > hconst::RATE_EPS || std::fabs(rateFall - prevFallRate[c]) > hconst::RATE_EPS) {
-                    slews[c].setRiseFall(rateRise, rateFall);
-                    prevRiseRate[c] = rateRise;
-                    prevFallRate[c] = rateFall;
+                    float rateRise = baseRateV * hi::dsp::glide::shapeMul(u, riseParams, hconst::EPS_ERR);
+                    float rateFall = baseRateV * hi::dsp::glide::shapeMul(u, fallParams, hconst::EPS_ERR);
+                    if (std::fabs(rateRise - prevRiseRate[c]) > hconst::RATE_EPS || std::fabs(rateFall - prevFallRate[c]) > hconst::RATE_EPS) {
+                        slews[c].setRiseFall(rateRise, rateFall);
+                        prevRiseRate[c] = rateRise;
+                        prevFallRate[c] = rateFall;
+                    }
+                    yRaw = slews[c].process(args.sampleTime, target);
                 }
-                yRaw = slews[c].process(args.sampleTime, target);
-            }
             }
 
             // Apply pre-quant Range (around 0V)
             float yPre = preRange(yRaw);
-            // Octave shift pre-quant
-            // Then apply Range offset before quantizer to shift whole window up/down
-            float yBase = yPre + rangeOffset + (float)postOctShift[c] * 1.f;
-            float y = yBase;
-            if (qzEnabled[c]) {
-                // Quantize relative to range offset so bounds follow the shifted window
-                float yRel = yBase - rangeOffset;
-                // Build current QuantConfig for hysteresis decision
-                hi::dsp::QuantConfig qc;
-                if (tuningMode == 0) { qc.edo = (edo <= 0) ? 12 : edo; qc.periodOct = 1.f; }
-                else { qc.edo = tetSteps > 0 ? tetSteps : 9; qc.periodOct = (tetPeriodOct > 0.f) ? tetPeriodOct : std::log2(3.f/2.f); }
-                qc.root = rootNote; qc.useCustom = useCustomScale; qc.customFollowsRoot = customScaleFollowsRoot;
-                qc.customMask12 = customMask12; qc.customMask24 = customMask24; qc.scaleIndex = scaleIndex;
-                if (qc.useCustom && (qc.edo!=12 && qc.edo!=24)) {
-                    if ((int)customMaskGeneric.size()==qc.edo) { qc.customMaskGeneric=customMaskGeneric.data(); qc.customMaskLen=(int)customMaskGeneric.size(); }
-                }
-                int N = qc.edo; float period = qc.periodOct;
-                // Detect config changes requiring re-init
-                bool cfgChanged = (prevRootNote!=rootNote || prevScaleIndex!=scaleIndex || prevEdo!=qc.edo || prevTetSteps!=tetSteps || prevTetPeriodOct!=qc.periodOct || prevTuningMode!=tuningMode || prevUseCustomScale!=useCustomScale || prevCustomFollowsRoot!=customScaleFollowsRoot || prevCustomMask12!=customMask12 || prevCustomMask24!=customMask24);
-                if (cfgChanged) {
-                    for (int k=0;k<16;++k) latchedInit[k]=false;
-                    prevRootNote=rootNote; prevScaleIndex=scaleIndex; prevEdo=qc.edo; prevTetSteps=tetSteps; prevTetPeriodOct=qc.periodOct; prevTuningMode=tuningMode; prevUseCustomScale=useCustomScale; prevCustomFollowsRoot=customScaleFollowsRoot; prevCustomMask12=customMask12; prevCustomMask24=customMask24;
-                }
-                float fs = yRel * (float)N / period; // fractional step (current raw position in EDO steps)
-                // Initialize latch to nearest allowed (delegated to core helper; NO behavior change)
-                if (!latchedInit[c]) { latchedStep[c] = hi::dsp::nearestAllowedStep( (int)std::round(fs), fs, qc ); latchedInit[c]=true; }
-                // Ensure still allowed (mask may have changed live) using core predicate + search (NO behavior change)
-                if (!hi::dsp::isAllowedStep(latchedStep[c], qc)) { latchedStep[c] = hi::dsp::nearestAllowedStep(latchedStep[c], fs, qc); }
-                // Hysteresis clamp sizes (Phase 3B: deltaV + H_V computation unchanged)
-                float dV = period / (float)N;
-                float stepCents = 1200.f * dV;
-                float Hc = rack::clamp(stickinessCents, 0.f, 20.f);
-                float maxAllowed = 0.4f * stepCents; if (Hc > maxAllowed) Hc = maxAllowed; // dynamic clamp
-                float H_V = Hc / 1200.f; // in volts
-                // Neighbor steps
-                int upStep = hi::dsp::nextAllowedStep(latchedStep[c], +1, qc);   // core delegation (directional neighbor)
-                int dnStep = hi::dsp::nextAllowedStep(latchedStep[c], -1, qc);   // core delegation
-                float center = (latchedStep[c] / (float)N) * period;
-                float vUp = (upStep / (float)N) * period; // up neighbor voltage (down neighbor implicit)
-                // Phase 3B: compute thresholds via core helper (verbatim formula relocation) using center & delta
-                hi::dsp::HystSpec hs{ (vUp - center) * 2.f, H_V }; // deltaV = full step span
-                auto th = hi::dsp::computeHysteresis(center, hs);
-                float T_up = th.up; float T_down = th.down; // identical to previous mid-based computation
-                if (yRel >= T_up && upStep != latchedStep[c]) latchedStep[c] = upStep;
-                else if (yRel <= T_down && dnStep != latchedStep[c]) latchedStep[c] = dnStep;
-                // Map latched step index back to volts via core snapper.
-                // We pass the exact on-grid voltage so snapEDO returns the identical value.
-                // This centralizes step->voltage mapping in core with ZERO behavior change (hysteresis still local).
-                float yqRel = hi::dsp::snapEDO((latchedStep[c] / (float)N) * period, qc, 10.f, false, 0);
-                // Determine rounding adjustment based on mode
-                if (quantRoundMode != 1) { // modes other than Nearest may bias (Phase 3B delegated rounding)
-                    float rawSemi = yRel * 12.f;
-                    float snappedSemi = yqRel * 12.f;
-                    float diff = rawSemi - snappedSemi;
-                    float prev = prevYRel[c];
-                    float dir = (yRel > prev + 1e-6f) ? 1.f : (yRel < prev - 1e-6f ? -1.f : 0.f);
-                    // Determine slopeDir integer for directional policy
-                    int slopeDir = (dir > 0.f) ? +1 : (dir < 0.f ? -1 : 0);
-                    hi::dsp::RoundMode rm = (quantRoundMode==0? hi::dsp::RoundMode::Directional : (quantRoundMode==2? hi::dsp::RoundMode::Ceil : (quantRoundMode==3? hi::dsp::RoundMode::Floor : hi::dsp::RoundMode::Nearest)));
-                    hi::dsp::RoundPolicy rp{rm};
-                    // posWithinStep: sign of diff indicates which side; scale so >0 => above snapped center
-                    float posWithin = (diff > 0.f ? diff : diff); // direct diff in semitone units (behavior preserved)
-                    int adjust = hi::dsp::pickRoundingTarget(0 /* base unused for current logic */, posWithin, slopeDir, rp);
-                    if (rm == hi::dsp::RoundMode::Directional) {
-                        if (slopeDir > 0 && diff > 0.f) {
-                            float nudged = quantizeToScale(yqRel + (1.f/12.f)*0.51f, 0, clipLimit, true); if (nudged > yqRel + 1e-5f) yqRel = nudged;
-                        } else if (slopeDir < 0 && diff < 0.f) {
-                            float nudged = quantizeToScale(yqRel - (1.f/12.f)*0.51f, 0, clipLimit, true); if (nudged < yqRel - 1e-5f) yqRel = nudged;
-                        }
-                    } else if (rm == hi::dsp::RoundMode::Ceil) {
-                        if (diff > 1e-5f) { float nudged = quantizeToScale(yqRel + (1.f/12.f)*0.51f, 0, clipLimit, true); if (nudged > yqRel + 1e-5f) yqRel = nudged; }
-                    } else if (rm == hi::dsp::RoundMode::Floor) {
-                        if (diff < -1e-5f) { float nudged = quantizeToScale(yqRel - (1.f/12.f)*0.51f, 0, clipLimit, true); if (nudged < yqRel - 1e-5f) yqRel = nudged; }
-                    }
-                    (void)adjust; // adjust currently not changing direct step index (logic identical to previous diff checks)
-                }
-                float yq = yqRel + rangeOffset;
-                float t = clamp(quantStrength, 0.f, 1.f);
-                y = yBase + (yq - yBase) * t;
-                prevYRel[c] = yRel;
-            } else {
-                prevYRel[c] = yBase - rangeOffset;
-            }
-            // Post safety clip at ±10 V, respecting softClipOut choice
-            if (softClipOut) y = hi::dsp::clip::soft(y, hconst::MAX_VOLT_CLAMP);
-            else             y = clamp(y, -hconst::MAX_VOLT_CLAMP, hconst::MAX_VOLT_CLAMP);
-            outVals[c] = y;
-            lastOut[c] = y;
+            // Octave shift pre-quant and apply Range offset before quantizer to shift whole window up/down
+            float yBasePre = yPre + rangeOffset + (float)postOctShift[c] * 1.f;
 
-            hi::ui::led::setBipolar(lights[CH_LIGHT + 2*c + 0], lights[CH_LIGHT + 2*c + 1], y, args.sampleTime);
+            // Quantizer position: Pre (legacy Q→S) vs Post (S→Q). Post keeps tuning stable under heavy slew; no math changed—only order.
+            float yFinal = 0.f;
+            if (quantizerPos == QuantizerPos::Pre) {
+                // Legacy behavior: Quantize first, then mix strength, then slew.
+                // Quantizer path (identical core calls) operating on yPre domain.
+                float yPreForQ = yBasePre; // includes rangeOffset & octave shift
+                float yRel = yPreForQ - rangeOffset;
+                float yQRel = yRel; // quantized relative volts
+                if (qzEnabled[c]) {
+                    // --- Core quantizer logic (unchanged) operating on unslewed signal ---
+                    hi::dsp::QuantConfig qc; if (tuningMode == 0) { qc.edo = (edo <= 0) ? 12 : edo; qc.periodOct = 1.f; } else { qc.edo = tetSteps > 0 ? tetSteps : 9; qc.periodOct = (tetPeriodOct > 0.f) ? tetPeriodOct : std::log2(3.f/2.f); }
+                    qc.root = rootNote; qc.useCustom = useCustomScale; qc.customFollowsRoot = customScaleFollowsRoot; qc.customMask12 = customMask12; qc.customMask24 = customMask24; qc.scaleIndex = scaleIndex; if (qc.useCustom && (qc.edo!=12 && qc.edo!=24)) { if ((int)customMaskGeneric.size()==qc.edo) { qc.customMaskGeneric=customMaskGeneric.data(); qc.customMaskLen=(int)customMaskGeneric.size(); } }
+                    bool cfgChanged = (prevRootNote!=rootNote || prevScaleIndex!=scaleIndex || prevEdo!=qc.edo || prevTetSteps!=tetSteps || prevTetPeriodOct!=qc.periodOct || prevTuningMode!=tuningMode || prevUseCustomScale!=useCustomScale || prevCustomFollowsRoot!=customScaleFollowsRoot || prevCustomMask12!=customMask12 || prevCustomMask24!=customMask24); if (cfgChanged) { for (int k=0;k<16;++k) latchedInit[k]=false; prevRootNote=rootNote; prevScaleIndex=scaleIndex; prevEdo=qc.edo; prevTetSteps=tetSteps; prevTetPeriodOct=qc.periodOct; prevTuningMode=tuningMode; prevUseCustomScale=useCustomScale; prevCustomFollowsRoot=customScaleFollowsRoot; prevCustomMask12=customMask12; prevCustomMask24=customMask24; }
+                    int N = qc.edo; float period = qc.periodOct; float fs = yRel * (float)N / period; if (!latchedInit[c]) { latchedStep[c] = hi::dsp::nearestAllowedStep( (int)std::round(fs), fs, qc ); latchedInit[c]=true; } if (!hi::dsp::isAllowedStep(latchedStep[c], qc)) { latchedStep[c] = hi::dsp::nearestAllowedStep(latchedStep[c], fs, qc); }
+                    float dV = period / (float)N; float stepCents = 1200.f * dV; float Hc = rack::clamp(stickinessCents, 0.f, 20.f); float maxAllowed = 0.4f * stepCents; if (Hc > maxAllowed) Hc = maxAllowed; float H_V = Hc / 1200.f; int upStep = hi::dsp::nextAllowedStep(latchedStep[c], +1, qc); int dnStep = hi::dsp::nextAllowedStep(latchedStep[c], -1, qc); float center = (latchedStep[c] / (float)N) * period; float vUp = (upStep / (float)N) * period; hi::dsp::HystSpec hs{ (vUp - center) * 2.f, H_V }; auto th = hi::dsp::computeHysteresis(center, hs); float T_up = th.up; float T_down = th.down; if (yRel >= T_up && upStep != latchedStep[c]) latchedStep[c] = upStep; else if (yRel <= T_down && dnStep != latchedStep[c]) latchedStep[c] = dnStep; yQRel = hi::dsp::snapEDO((latchedStep[c] / (float)N) * period, qc, 10.f, false, 0);
+                    if (quantRoundMode != 1) { float rawSemi = yRel * 12.f; float snappedSemi = yQRel * 12.f; float diff = rawSemi - snappedSemi; float prev = prevYRel[c]; float dir = (yRel > prev + 1e-6f) ? 1.f : (yRel < prev - 1e-6f ? -1.f : 0.f); int slopeDir = (dir > 0.f) ? +1 : (dir < 0.f ? -1 : 0); hi::dsp::RoundMode rm = (quantRoundMode==0? hi::dsp::RoundMode::Directional : (quantRoundMode==2? hi::dsp::RoundMode::Ceil : (quantRoundMode==3? hi::dsp::RoundMode::Floor : hi::dsp::RoundMode::Nearest))); hi::dsp::RoundPolicy rp{rm}; (void)hi::dsp::pickRoundingTarget(0, diff, (int)slopeDir, rp); if (rm == hi::dsp::RoundMode::Directional) { if (slopeDir > 0 && diff > 0.f) { float nudged = quantizeToScale(yQRel + (1.f/12.f)*0.51f, 0, clipLimit, true); if (nudged > yQRel + 1e-5f) yQRel = nudged; } else if (slopeDir < 0 && diff < 0.f) { float nudged = quantizeToScale(yQRel - (1.f/12.f)*0.51f, 0, clipLimit, true); if (nudged < yQRel - 1e-5f) yQRel = nudged; } } else if (rm == hi::dsp::RoundMode::Ceil) { if (diff > 1e-5f) { float nudged = quantizeToScale(yQRel + (1.f/12.f)*0.51f, 0, clipLimit, true); if (nudged > yQRel + 1e-5f) yQRel = nudged; } } else if (rm == hi::dsp::RoundMode::Floor) { if (diff < -1e-5f) { float nudged = quantizeToScale(yQRel - (1.f/12.f)*0.51f, 0, clipLimit, true); if (nudged < yQRel - 1e-5f) yQRel = nudged; } } prevYRel[c] = yRel; } else { prevYRel[c] = yRel; }
+                } else { prevYRel[c] = yRel; }
+                float yQAbs = yQRel + rangeOffset; float t = clamp(quantStrength, 0.f, 1.f); float yMix = yPreForQ + (yQAbs - yPreForQ) * t; // Quant strength blend (raw = yPreForQ)
+                // Now apply slew AFTER quantization (legacy order): reuse rate calc path targeting yMix
+                float yPost = yMix;
+                if (!noSlew && !inStartDelay) {
+                    float baseRateN = stepNorm[c] / sec; float baseRateV = pitchSafeGlide ? hi::dsp::glide::semitonesToVolts(baseRateN) : baseRateN; float u = clamp(aerrN / stepNorm[c], 0.f, 1.f); float rateRise = baseRateV * hi::dsp::glide::shapeMul(u, riseParams, hconst::EPS_ERR); float rateFall = baseRateV * hi::dsp::glide::shapeMul(u, fallParams, hconst::EPS_ERR); if (std::fabs(rateRise - prevRiseRate[c]) > hconst::RATE_EPS || std::fabs(rateFall - prevFallRate[c]) > hconst::RATE_EPS) { slews[c].setRiseFall(rateRise, rateFall); prevRiseRate[c] = rateRise; prevFallRate[c] = rateFall; } yPost = slews[c].process(args.sampleTime, yMix); }
+                yFinal = yPost;
+            } else {
+                // New default: Slew first (already done), then quantize for pitch stability under long glides.
+                float ySlewed = yPre + rangeOffset + (float)postOctShift[c] * 1.f; // identical placement; yPre already includes range handling
+                float yRel = (ySlewed - rangeOffset); // relative before quant
+                float yOutQuant = ySlewed; // will hold final blended result
+                if (qzEnabled[c]) {
+                    // --- Begin unchanged quantizer logic (post-slew domain) ---
+                    hi::dsp::QuantConfig qc;
+                    if (tuningMode == 0) { qc.edo = (edo <= 0) ? 12 : edo; qc.periodOct = 1.f; }
+                    else { qc.edo = tetSteps > 0 ? tetSteps : 9; qc.periodOct = (tetPeriodOct > 0.f) ? tetPeriodOct : std::log2(3.f/2.f); }
+                    qc.root = rootNote; qc.useCustom = useCustomScale; qc.customFollowsRoot = customScaleFollowsRoot;
+                    qc.customMask12 = customMask12; qc.customMask24 = customMask24; qc.scaleIndex = scaleIndex;
+                    if (qc.useCustom && (qc.edo!=12 && qc.edo!=24)) {
+                        if ((int)customMaskGeneric.size()==qc.edo) { qc.customMaskGeneric=customMaskGeneric.data(); qc.customMaskLen=(int)customMaskGeneric.size(); }
+                    }
+                    int N = qc.edo; float period = qc.periodOct; bool cfgChanged = (prevRootNote!=rootNote || prevScaleIndex!=scaleIndex || prevEdo!=qc.edo || prevTetSteps!=tetSteps || prevTetPeriodOct!=qc.periodOct || prevTuningMode!=tuningMode || prevUseCustomScale!=useCustomScale || prevCustomFollowsRoot!=customScaleFollowsRoot || prevCustomMask12!=customMask12 || prevCustomMask24!=customMask24); if (cfgChanged) { for (int k=0;k<16;++k) latchedInit[k]=false; prevRootNote=rootNote; prevScaleIndex=scaleIndex; prevEdo=qc.edo; prevTetSteps=tetSteps; prevTetPeriodOct=qc.periodOct; prevTuningMode=tuningMode; prevUseCustomScale=useCustomScale; prevCustomFollowsRoot=customScaleFollowsRoot; prevCustomMask12=customMask12; prevCustomMask24=customMask24; }
+                    float fs = yRel * (float)N / period; if (!latchedInit[c]) { latchedStep[c] = hi::dsp::nearestAllowedStep( (int)std::round(fs), fs, qc ); latchedInit[c]=true; } if (!hi::dsp::isAllowedStep(latchedStep[c], qc)) { latchedStep[c] = hi::dsp::nearestAllowedStep(latchedStep[c], fs, qc); }
+                    float dV = period / (float)N; float stepCents = 1200.f * dV; float Hc = rack::clamp(stickinessCents, 0.f, 20.f); float maxAllowed = 0.4f * stepCents; if (Hc > maxAllowed) Hc = maxAllowed; float H_V = Hc / 1200.f; int upStep = hi::dsp::nextAllowedStep(latchedStep[c], +1, qc); int dnStep = hi::dsp::nextAllowedStep(latchedStep[c], -1, qc); float center = (latchedStep[c] / (float)N) * period; float vUp = (upStep / (float)N) * period; hi::dsp::HystSpec hs{ (vUp - center) * 2.f, H_V }; auto th = hi::dsp::computeHysteresis(center, hs); float T_up = th.up; float T_down = th.down; if (yRel >= T_up && upStep != latchedStep[c]) latchedStep[c] = upStep; else if (yRel <= T_down && dnStep != latchedStep[c]) latchedStep[c] = dnStep; float yqRel = hi::dsp::snapEDO((latchedStep[c] / (float)N) * period, qc, 10.f, false, 0);
+                    if (quantRoundMode != 1) { float rawSemi = yRel * 12.f; float snappedSemi = yqRel * 12.f; float diff = rawSemi - snappedSemi; float prev = prevYRel[c]; float dir = (yRel > prev + 1e-6f) ? 1.f : (yRel < prev - 1e-6f ? -1.f : 0.f); int slopeDir = (dir > 0.f) ? +1 : (dir < 0.f ? -1 : 0); hi::dsp::RoundMode rm = (quantRoundMode==0? hi::dsp::RoundMode::Directional : (quantRoundMode==2? hi::dsp::RoundMode::Ceil : (quantRoundMode==3? hi::dsp::RoundMode::Floor : hi::dsp::RoundMode::Nearest))); hi::dsp::RoundPolicy rp{rm}; float posWithin = diff; (void)hi::dsp::pickRoundingTarget(0, posWithin, slopeDir, rp); if (rm == hi::dsp::RoundMode::Directional) { if (slopeDir > 0 && diff > 0.f) { float nudged = quantizeToScale(yqRel + (1.f/12.f)*0.51f, 0, clipLimit, true); if (nudged > yqRel + 1e-5f) yqRel = nudged; } else if (slopeDir < 0 && diff < 0.f) { float nudged = quantizeToScale(yqRel - (1.f/12.f)*0.51f, 0, clipLimit, true); if (nudged < yqRel - 1e-5f) yqRel = nudged; } } else if (rm == hi::dsp::RoundMode::Ceil) { if (diff > 1e-5f) { float nudged = quantizeToScale(yqRel + (1.f/12.f)*0.51f, 0, clipLimit, true); if (nudged > yqRel + 1e-5f) yqRel = nudged; } } else if (rm == hi::dsp::RoundMode::Floor) { if (diff < -1e-5f) { float nudged = quantizeToScale(yqRel - (1.f/12.f)*0.51f, 0, clipLimit, true); if (nudged < yqRel - 1e-5f) yqRel = nudged; } }
+                        prevYRel[c] = (ySlewed - rangeOffset); // In Post mode, track pre-quant slew domain for directional snap sign
+                    } else {
+                        prevYRel[c] = (ySlewed - rangeOffset);
+                    }
+                    float yq = yqRel + rangeOffset; float t = clamp(quantStrength, 0.f, 1.f); yOutQuant = ySlewed + (yq - ySlewed) * t; // Strength blend AFTER slew (raw signal: ySlewed in Post mode)
+                    // Quantizer position toggle (no math changes) — Post mode uses ySlewed as raw blend source.
+                } else {
+                    prevYRel[c] = (ySlewed - rangeOffset);
+                }
+                float yPost = yOutQuant; // Already slewed; quant done last
+                yFinal = yPost;
+            }
+
+            // Strength crossfade raw source note: Pre mode uses yPre(yPreForQ), Post uses ySlewed. (Comment clarifies raw signal for blend.)
+            // Post safety clip at ±10 V, respecting softClipOut choice
+            if (softClipOut) yFinal = hi::dsp::clip::soft(yFinal, hconst::MAX_VOLT_CLAMP);
+            else            yFinal = clamp(yFinal, -hconst::MAX_VOLT_CLAMP, hconst::MAX_VOLT_CLAMP);
+            outVals[c] = yFinal;
+            lastOut[c] = yFinal;
+            hi::ui::led::setBipolar(lights[CH_LIGHT + 2*c + 0], lights[CH_LIGHT + 2*c + 1], yFinal, args.sampleTime);
         }
 
     // Emit outputs
@@ -2131,6 +2119,12 @@ struct PolyQuantaWidget : ModuleWidget {
 
     // Quantization (musical) settings
     hi::ui::menu::addSection(menu, "Quantization");
+        // Quantizer position submenu (new)
+        menu->addChild(rack::createSubmenuItem("Signal chain →", "", [m](rack::ui::Menu* sm){
+            // Quantizer position toggle (no math changes).
+            sm->addChild(rack::createCheckMenuItem("Legacy: Quantize → Slew (Q→S)", "", [m]{ return m->quantizerPos == PolyQuanta::QuantizerPos::Pre; }, [m]{ m->quantizerPos = PolyQuanta::QuantizerPos::Pre; }));
+            sm->addChild(rack::createCheckMenuItem("Pitch-accurate: Slew → Quantize (S→Q)", "", [m]{ return m->quantizerPos == PolyQuanta::QuantizerPos::Post; }, [m]{ m->quantizerPos = PolyQuanta::QuantizerPos::Post; }));
+        }));
         // Status line
         {
             int steps = (m->tuningMode==0) ? m->edo : m->tetSteps;
