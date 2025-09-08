@@ -10,31 +10,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up MSYS2
+      - name: Set up MSYS2 (MINGW64 + toolchain)
         uses: msys2/setup-msys2@v2
         with:
-            update: true
-            install: >-
-              make
-              zip
-              unzip
-              mingw-w64-x86_64-gcc
+          msystem: MINGW64
+          update: true
+          install: >-
+            make
+            zip
+            unzip
+            mingw-w64-x86_64-toolchain
 
       - name: Build with Rack SDK
-        shell: bash         # or: shell: msys2 {0}
+        shell: msys2 {0}     # <-- IMPORTANT: run inside MSYS2/MINGW64 shell
         run: |
           set -e
           SDK_VER=2.6.4
           curl -L -o rack-sdk.zip "https://vcvrack.com/downloads/Rack-SDK-${SDK_VER}-win-x64.zip"
           unzip -q rack-sdk.zip -d "$HOME"
 
-          # IMPORTANT: set both vars for this shell before running make
+          # Makefile expects RACK_DIR; set both for clarity
           export RACK_DIR="$HOME/Rack-SDK"
           export RACK_SDK="$HOME/Rack-SDK"
 
-          # Sanity check (fail early if missing)
-          test -f "$RACK_DIR/plugin.mk" || { echo "plugin.mk not found at $RACK_DIR"; ls -la "$HOME"; exit 1; }
+          # Sanity checks: confirm toolchain + plugin.mk are visible
+          cc --version || { echo "cc not found in PATH"; exit 1; }
+          test -f "$RACK_DIR/plugin.mk" || { echo "plugin.mk not found at $RACK_DIR"; exit 1; }
 
           make clean || true
           make -j2
-          
