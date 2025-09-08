@@ -49,7 +49,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - No security-related changes in this release.
 
 ### Docs
-- Introduced this CHANGELOG following Keep a Changelog format.
+- Introduced this CHANGELOG following Keep a Changelog format. 
 
 <!--
 Link reference section: add real compare links once git tags exist.
