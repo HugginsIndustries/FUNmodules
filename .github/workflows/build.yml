@@ -1,4 +1,4 @@
-# .github/workflows/build.yml  (Windows job)
+# .github/workflows/build.yml (Windows job)
 name: Build (Windows / MSYS2)
 
 on: [push, pull_request]
@@ -10,7 +10,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up MSYS2 (MINGW64 + toolchain)
+      - name: Set up MSYS2 (MINGW64 + toolchain + jq)
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -19,23 +19,26 @@ jobs:
             make
             zip
             unzip
+            jq
             mingw-w64-x86_64-toolchain
 
       - name: Build with Rack SDK
-        shell: msys2 {0}     # <-- IMPORTANT: run inside MSYS2/MINGW64 shell
+        shell: msys2 {0}   # IMPORTANT: build inside MINGW64 shell
         run: |
           set -e
           SDK_VER=2.6.4
           curl -L -o rack-sdk.zip "https://vcvrack.com/downloads/Rack-SDK-${SDK_VER}-win-x64.zip"
           unzip -q rack-sdk.zip -d "$HOME"
 
-          # Makefile expects RACK_DIR; set both for clarity
           export RACK_DIR="$HOME/Rack-SDK"
           export RACK_SDK="$HOME/Rack-SDK"
 
-          # Sanity checks: confirm toolchain + plugin.mk are visible
-          cc --version || { echo "cc not found in PATH"; exit 1; }
+          # Sanity checks (fail early with helpful logs)
+          cc --version
           test -f "$RACK_DIR/plugin.mk" || { echo "plugin.mk not found at $RACK_DIR"; exit 1; }
+          ls -la .
+          test -f plugin.json || { echo "plugin.json missing in repo root"; exit 1; }
+          jq -r '.slug, .version' plugin.json
 
           make clean || true
           make -j2
