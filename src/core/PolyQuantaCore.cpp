@@ -90,6 +90,37 @@ int nearestAllowedStep(int sGuess, float fs, const QuantConfig& qc) {
     return best;
 }
 }} // namespace hi::dsp
+#include <unordered_set>
+#include <set>
+#include <map>
+
+// -----------------------------------------------------------------------------
+// Phase 4A (relocated): MOS helpers (verbatim logic) + poly::processWidth.
+// These were previously inlined at the top of PolyQuanta.cpp. Moved here to
+// reduce compilation churn and centralize reusable math without behavior change.
+// -----------------------------------------------------------------------------
+namespace hi { namespace music { namespace mos {
+const std::map<int, std::vector<int>> curated = {
+    {5,{3,5}}, {6,{3,4,6}}, {7,{5,7}}, {8,{4,6,8}}, {9,{5,7,9}}, {10,{5,7,8,10}}, {11,{5,7,9,11}},
+    {12,{5,7,8,6}}, {13,{7,9,11,13}}, {14,{7,9,12}}, {16,{5,7,8,10}}, {17,{5,7,9,10}}, {18,{5,6,9,12}},
+    {19,{7,9,10}}, {20,{5,8,10,12}}, {22,{7,9,11}}, {24,{5,6,7,8}}, {25,{5,8,10,12}}, {26,{7,9,11}},
+    {31,{7,9,11}}, {34,{7,9,12}}, {36,{6,9,12}}, {38,{7,9,12}}, {41,{7,9,11}}, {43,{7,9,11,13}},
+    {44,{9,11,13}}, {48,{6,8,12,16}}, {50,{5,8,10,12}}, {52,{7,9,13}}, {53,{7,9,11,13}}, {60,{5,6,10,12}},
+    {62,{7,9,12}}, {64,{7,8,12,16}}, {72,{6,8,9,12,18}}, {96,{8,12,16,24}}, {120,{10,12,15,20}}
+};
+int gcdInt(int a, int b){ while(b){ int t=a%b; a=b; b=t;} return a<0?-a:a; }
+std::vector<int> generateCycle(int N, int g, int m){ std::vector<int> pcs; pcs.reserve(m); std::unordered_set<int> seen; for(int k=0;k<m;++k){ int v=((long long)k*g)%N; if(seen.insert(v).second) pcs.push_back(v); else break; } std::sort(pcs.begin(),pcs.end()); return pcs; }
+bool isMOS(const std::vector<int>& pcs, int N){ if(pcs.size()<2) return false; std::set<int> steps; for(size_t i=0;i<pcs.size();++i){ int a=pcs[i]; int b=pcs[(i+1)%pcs.size()]; int step=(i+1<pcs.size()? b-a : (N-a+b)); if(step<=0) step+=N; steps.insert(step); if(steps.size()>2) return false; } return true; }
+int findBestGenerator(int N, int m){ if(m<2) return 1; if(m>N) m=N; struct Cand{int g; int diff; float dist;} best{0,INT_MAX,1e9f}; for(int g=1; g<N; ++g){ if(gcdInt(g,N)!=1) continue; auto cyc=generateCycle(N,g,m); if((int)cyc.size()!=m) continue; if(!isMOS(cyc,N)) continue; auto bal = [&](){ std::map<int,int> freq; int M=(int)cyc.size(); for(int i=0;i<M;++i){ int a=cyc[i]; int b=cyc[(i+1)%M]; int step=(i+1<M? b-a : (N-a+b)); if(step<=0) step+=N; freq[step]++; } if(freq.size()==1) return std::pair<int,float>{0,0.f}; if(freq.size()==2){ auto it=freq.begin(); int c1=it->second; ++it; int c2=it->second; return std::pair<int,float>{std::abs(c1-c2),0.f}; } return std::pair<int,float>{1000,0.f}; }(); int diff=bal.first; float gn=(float)g/N; float dist=std::min(std::fabs(gn-7.f/12.f), std::fabs(gn-3.f/12.f)); if(diff<best.diff || (diff==best.diff && dist<best.dist)) best={g,diff,dist}; } if(best.g) return best.g; int cand[2]={ std::max(1,std::min(N-1,(int)std::lround(N*7.0/12.0))), std::max(1,std::min(N-1,(int)std::lround(N*3.0/12.0))) }; for(int g: cand){ if(gcdInt(g,N)!=1) continue; auto cyc=generateCycle(N,g,m); if((int)cyc.size()==m) return g; } return 1; }
+std::string patternLS(const std::vector<int>& pcs, int N){ if(pcs.size()<2) return ""; std::vector<int> steps; for(size_t i=0;i<pcs.size();++i){ int a=pcs[i]; int b=pcs[(i+1)%pcs.size()]; int step=(i+1<pcs.size()? b-a : (N-a+b)); if(step<=0) step+=N; steps.push_back(step);} int mn=*std::min_element(steps.begin(),steps.end()); int mx=*std::max_element(steps.begin(),steps.end()); std::string out; out.reserve(steps.size()); for(int s:steps) out.push_back((mx!=mn && s==mx)?'L':'S'); return out; }
+}}} // namespace hi::music::mos
+
+namespace hi { namespace dsp { namespace poly {
+int processWidth(bool forcePolyOut, bool inputConnected, int inputChannels, int maxCh) {
+    int n = forcePolyOut ? maxCh : (inputConnected ? inputChannels : maxCh);
+    return std::min(n, maxCh);
+}
+}}} // namespace hi::dsp::poly
 #include <cassert>
 
 // Phase 3B: Rounding + hysteresis helpers (verbatim relocation of formulas)
@@ -355,6 +386,14 @@ static inline void _assertClose(float a, float b, float eps, const char* ctx) {
 
 int pqtests::run_core_tests() {
     using namespace hi::dsp;
+    // Relocated helper sanity (MOS + conversions + poly width)
+    {
+        // volts<->semitones round trip at boundaries
+        float v = 1.0f; float st = glide::voltsToSemitones(v); float v2 = glide::semitonesToVolts(st); _assertClose(v, v2, 1e-6f, "volts<->semitones");
+        int g = hi::music::mos::gcdInt(53, 12); assert(g==1);
+        auto cyc = hi::music::mos::generateCycle(12,7,7); assert(cyc.size()>=7-1); // MOS cycle length
+        int w = hi::dsp::poly::processWidth(false, false, 0, 16); assert(w==16);
+    }
     // --- 12-EDO boundary mapping ---
     // Build QuantConfig for ordinary 12-EDO (period 1 V/oct). Verify snapped
     // outputs over canonical grid are monotonic and produce the expected 13
