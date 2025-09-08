@@ -21,16 +21,20 @@ jobs:
               mingw-w64-x86_64-gcc
 
       - name: Build with Rack SDK
-        shell: bash
+        shell: bash         # or: shell: msys2 {0}
         run: |
           set -e
           SDK_VER=2.6.4
           curl -L -o rack-sdk.zip "https://vcvrack.com/downloads/Rack-SDK-${SDK_VER}-win-x64.zip"
           unzip -q rack-sdk.zip -d "$HOME"
-          # Export BOTH vars; Makefile expects RACK_DIR
-          echo "RACK_DIR=$HOME/Rack-SDK" >> $GITHUB_ENV
-          echo "RACK_SDK=$HOME/Rack-SDK" >> $GITHUB_ENV
-          # Sanity: prove plugin.mk is visible
-          test -f "$HOME/Rack-SDK/plugin.mk" || { echo "plugin.mk not found"; ls -la "$HOME"; exit 1; }
+
+          # IMPORTANT: set both vars for this shell before running make
+          export RACK_DIR="$HOME/Rack-SDK"
+          export RACK_SDK="$HOME/Rack-SDK"
+
+          # Sanity check (fail early if missing)
+          test -f "$RACK_DIR/plugin.mk" || { echo "plugin.mk not found at $RACK_DIR"; ls -la "$HOME"; exit 1; }
+
           make clean || true
           make -j2
+          
