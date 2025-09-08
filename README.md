@@ -2,6 +2,9 @@
 
 Experimental modules for VCV Rack 2.
 
+## Changelog
+See [CHANGELOG.md](CHANGELOG.md) for release history and unreleased changes.
+
 ## Build (Windows / MSYS2)
 ```bash
 # in MSYS2 MINGW64

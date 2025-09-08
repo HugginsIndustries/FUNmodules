@@ -441,6 +441,57 @@ int pqtests::run_core_tests() {
     }
 
     // (CoreState JSON round-trip test removed in UNIT_TESTS build: JSON helpers compiled out.)
+    // ------------------------------------------------------------------
+    // (B) Added normalization contract tests (glide unit semantics).
+    // Duration model: time ≈ distance / unitsPerSec with unitsPerSec = 1.
+    // These do not exercise module slews; they validate proportionality.
+    // ------------------------------------------------------------------
+    // Helpers (B.1)
+    {
+        auto duration_volts = [](float dV) -> float { return std::fabs(dV); };
+        auto duration_cents = [](float dV) -> float { return std::fabs(dV) * 12.0f; }; // 1 V = 12 semitones (units cancel in ratios)
+        auto duration_steps = [](float dV, float deltaV) -> float { return std::fabs(dV) / std::max(1e-12f, deltaV); };
+        auto duration_equal_time = [](float /*dV*/) -> float { return 1.0f; }; // Equal-time: all jumps same duration
+        // Equal-time legacy (normalization disabled) ratio test
+        {
+            float tA = duration_equal_time(2.0f);
+            float tB = duration_equal_time(0.5f);
+            assert(std::fabs((tA / tB) - 1.0f) < 1e-6f); // Expect 1:1
+        }
+        // Volts-linear ratio test (B.2)
+        {
+            float t1 = duration_volts(1.0f);   // 1 V jump
+            float t2 = duration_volts(0.5f);   // 0.5 V jump
+            assert(std::fabs((t1 / t2) - 2.0f) < 1e-6f); // Expect ratio ≈ 2.0
+        }
+        // Cent-linear ratio test (B.3)
+        {
+            float dV_12semi = 1.0f;           // 12 semitones = 1 V
+            float dV_1semi  = 1.0f / 12.0f;   // 1 semitone
+            float t12 = duration_cents(dV_12semi);
+            float t01 = duration_cents(dV_1semi);
+            assert(std::fabs((t12 / t01) - 12.0f) < 1e-6f); // Expect ~12.0
+        }
+        // Step-safe ratio test (octave EDO) (B.4)
+        {
+            float deltaV = 1.0f / 13.0f;      // EDO 13: ΔV per step
+            float dV_5steps = 5.0f * deltaV;
+            float dV_1step  = 1.0f * deltaV;
+            float t5 = duration_steps(dV_5steps, deltaV);
+            float t1 = duration_steps(dV_1step,  deltaV);
+            assert(std::fabs((t5 / t1) - 5.0f) < 1e-6f); // Expect ~5.0
+        }
+        // Step-safe ratio test (non-octave TET) (B.5)
+        {
+            float periodOct = std::log2(3.0f); // tritave
+            float deltaV = periodOct / 9.0f;   // N = 9 steps
+            float dV_7steps = 7.0f * deltaV;
+            float dV_1step  = 1.0f * deltaV;
+            float t7 = duration_steps(dV_7steps, deltaV);
+            float t1 = duration_steps(dV_1step,  deltaV);
+            assert(std::fabs((t7 / t1) - 7.0f) < 1e-6f); // Expect ~7.0
+        }
+    }
 
     return 0; // All assertions passed.
 }

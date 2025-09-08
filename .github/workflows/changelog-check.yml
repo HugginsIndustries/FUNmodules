@@ -1,0 +1,48 @@
+name: Changelog Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+jobs:
+  changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect version bump
+        id: detect
+        run: |
+          if [ ! -f plugin.json ]; then echo "::error::plugin.json missing"; exit 1; fi
+          VERSION_JSON=$(jq -r '.version' plugin.json)
+          echo "Detected plugin.json version: $VERSION_JSON"
+          # If this is not a version bump (no CHANGELOG enforcement needed) we still ensure CHANGELOG exists
+          if ! grep -q "^## \[${VERSION_JSON}\]" CHANGELOG.md; then
+            echo "::warning::No section for version $VERSION_JSON yet. If this PR intends to release, add it.";
+          fi
+          echo "version=$VERSION_JSON" >> $GITHUB_OUTPUT
+
+      - name: Enforce changelog section when version header present
+        run: |
+          VERSION=${{ steps.detect.outputs.version }}
+          if grep -q "^## \[${VERSION}\]" CHANGELOG.md; then
+            echo "Found version header in CHANGELOG: ${VERSION}"
+            # Basic content heuristic: ensure at least one non-placeholder bullet under that section
+            SECTION_LINES=$(awk "/^## \[${VERSION//./\\.}\]/ {flag=1; next} /^## \[/ {flag=0} flag {print}" CHANGELOG.md | grep -E '^- ' || true)
+            if [ -z "$SECTION_LINES" ]; then
+              echo "::error::CHANGELOG section for ${VERSION} has no bullet items"; exit 1;
+            fi
+          else
+            echo "(No explicit version section yet — treating as unreleased development)"
+          fi
+
+      - name: Ensure Unreleased section present
+        run: |
+          if ! grep -q '^## \[Unreleased\]' CHANGELOG.md; then
+            echo '::error::Missing Unreleased section in CHANGELOG.md'; exit 1;
+          fi
+
+      - name: Summary
+        run: |
+          echo "Changelog check completed."
