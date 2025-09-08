@@ -41,6 +41,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Removed
 - Legacy standalone pitch-safe toggle in favor of unified normalization enable + mode submenu.
+- Offset module (was just a test module)
 
 ### Deprecated
 - Legacy implicit semitone glide key (`pitchSafe`) retained only for JSON backward compatibility (no longer written).

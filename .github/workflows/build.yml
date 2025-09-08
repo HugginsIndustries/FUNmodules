@@ -1,11 +1,45 @@
-# .github/workflows/build.yml (Windows job)
-name: Build (Windows / MSYS2)
+# .github/workflows/build.yml (Headless core tests & Windows / Linux + macOS builds)
+name: Build
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# One place to change the SDK version
+env:
+  SDK_VER: "2.6.4"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
+  # ---- 1) Headless core tests on Linux (fast) ----
+  core-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build core tests (UNIT_TESTS)
+        run: |
+          set -e
+          sudo apt-get update
+          sudo apt-get install -y g++ make jq
+          mkdir -p build
+          g++ -std=c++17 -O2 -DUNIT_TESTS \
+             src/core/PolyQuantaCore.cpp src/core/ScaleDefs.cpp tests/main.cpp \
+             -Isrc -o build/core_tests
+      - name: Run core tests
+        run: ./build/core_tests
+
+  # ---- 2) Windows build with MSYS2/MINGW64 ----
   build-windows:
     runs-on: windows-latest
+    needs: core-tests
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,23 +56,121 @@ jobs:
             jq
             mingw-w64-x86_64-toolchain
 
-      - name: Build with Rack SDK
-        shell: msys2 {0}   # IMPORTANT: build inside MINGW64 shell
+      - name: Cache Rack SDK
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/Rack-SDK
+          key: rack-sdk-${{ runner.os }}-${{ env.SDK_VER }}
+
+      - name: Prepare Rack SDK
+        shell: msys2 {0}
         run: |
           set -e
-          SDK_VER=2.6.4
-          curl -L -o rack-sdk.zip "https://vcvrack.com/downloads/Rack-SDK-${SDK_VER}-win-x64.zip"
-          unzip -q rack-sdk.zip -d "$HOME"
+          export SDK_DIR="${RUNNER_TEMP}/Rack-SDK"
+          if [ ! -f "${SDK_DIR}/plugin.mk" ]; then
+            mkdir -p "${SDK_DIR}"
+            curl -L -o rack-sdk.zip "https://vcvrack.com/downloads/Rack-SDK-${SDK_VER}-win-x64.zip"
+            unzip -q rack-sdk.zip -d "${RUNNER_TEMP}"
+          fi
+          echo "RACK_DIR=${SDK_DIR}" >> $GITHUB_ENV
+          echo "RACK_SDK=${SDK_DIR}" >> $GITHUB_ENV
 
-          export RACK_DIR="$HOME/Rack-SDK"
-          export RACK_SDK="$HOME/Rack-SDK"
-
-          # Sanity checks (fail early with helpful logs)
+      - name: Build (MSYS2 shell)
+        shell: msys2 {0}
+        run: |
+          set -e
           cc --version
           test -f "$RACK_DIR/plugin.mk" || { echo "plugin.mk not found at $RACK_DIR"; exit 1; }
-          ls -la .
           test -f plugin.json || { echo "plugin.json missing in repo root"; exit 1; }
-          jq -r '.slug, .version' plugin.json
-
           make clean || true
           make -j2
+          # Try to package (Rack v2 has 'make dist'); tolerate if not present
+          make dist || true
+
+      - name: Read plugin meta
+        id: meta
+        shell: msys2 {0}
+        run: |
+          echo "slug=$(jq -r .slug plugin.json)" >> $GITHUB_OUTPUT
+          echo "ver=$(jq -r .version plugin.json)" >> $GITHUB_OUTPUT
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dist-windows-${{ steps.meta.outputs.slug }}-v${{ steps.meta.outputs.ver }}
+          path: |
+            dist/**
+            build/**/plugin.*  # fallback if 'dist' not produced
+
+  # ---- 3) Linux + macOS builds (matrix) ----
+  build-unix:
+    runs-on: ${{ matrix.os }}
+    needs: core-tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            sdk_suffix: lin-x64
+            pkgs: "build-essential jq zip unzip"
+          - os: macos-latest
+            sdk_suffix: mac-x64
+            pkgs: "jq zip unzip"   # clang is preinstalled
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install deps
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.pkgs }}
+
+      - name: Install deps (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew update
+          brew install ${{ matrix.pkgs }} || true
+
+      - name: Cache Rack SDK
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/Rack-SDK
+          key: rack-sdk-${{ runner.os }}-${{ env.SDK_VER }}
+
+      - name: Prepare Rack SDK
+        shell: bash
+        run: |
+          set -e
+          SDK_DIR="${RUNNER_TEMP}/Rack-SDK"
+          if [ ! -f "${SDK_DIR}/plugin.mk" ]; then
+            curl -L -o rack-sdk.zip "https://vcvrack.com/downloads/Rack-SDK-${SDK_VER}-${{ matrix.sdk_suffix }}.zip"
+            unzip -q rack-sdk.zip -d "${RUNNER_TEMP}"
+          fi
+          echo "RACK_DIR=${SDK_DIR}" >> $GITHUB_ENV
+          echo "RACK_SDK=${SDK_DIR}" >> $GITHUB_ENV
+          jq -r '.slug, .version' plugin.json
+
+      - name: Build
+        shell: bash
+        run: |
+          set -e
+          test -f "$RACK_DIR/plugin.mk" || { echo "plugin.mk not found at $RACK_DIR"; exit 1; }
+          make clean || true
+          make -j2
+          make dist || true
+
+      - name: Read plugin meta
+        id: meta
+        shell: bash
+        run: |
+          echo "slug=$(jq -r .slug plugin.json)" >> $GITHUB_OUTPUT
+          echo "ver=$(jq -r .version plugin.json)" >> $GITHUB_OUTPUT
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dist-${{ runner.os }}-${{ steps.meta.outputs.slug }}-v${{ steps.meta.outputs.ver }}
+          path: |
+            dist/**
+            build/**/plugin.*

@@ -9,6 +9,5 @@ extern Plugin* pluginInstance;
 
 // Declare each Model, defined in each module source file
 // extern Model* modelMyModule;
-extern Model* modelOffset;
 extern Model* modelPolyQuanta;
 //extern Model* modelPolyQuantaXL; // future expansion

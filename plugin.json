@@ -9,18 +9,11 @@
   "authorUrl": "",
   "pluginUrl": "",
   "manualUrl": "",
-  "sourceUrl": "",
+  "sourceUrl": "https://github.com/HugginsIndustries/FUNmodules",
   "donateUrl": "",
-  "changelogUrl": "",
+  "changelogUrl": "https://github.com/HugginsIndustries/FUNmodules/blob/main/CHANGELOG.md",
   "modules": [
-    {
-      "slug": "Offset",
-      "name": "Offset",
-      "description": "just a test :)",
-      "tags": [
-        "Utility"
-      ]
-    },
+
     {
       "slug": "PolyQuanta",
       "name": "PolyQuanta",
@@ -33,5 +26,6 @@
         "Quantizer"
       ]
     }
+    
   ]
 }

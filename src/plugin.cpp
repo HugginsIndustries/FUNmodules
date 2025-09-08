@@ -9,7 +9,6 @@ void init(Plugin* p) {
 
 	// Add modules here
 	// p->addModel(modelMyModule);
-	p->addModel(modelOffset);
 	p->addModel(modelPolyQuanta);
 	//p->addModel(modelPolyQuantaXL); // future expansion
 	// Any other plugin initialization may go here.
