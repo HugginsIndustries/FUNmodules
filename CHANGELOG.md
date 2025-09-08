@@ -51,9 +51,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Docs
 - Introduced this CHANGELOG following Keep a Changelog format. 
 
-<!--
-Link reference section: add real compare links once git tags exist.
-If tags exist, uncomment and adapt examples below:
-[Unreleased]: https://github.com/HugginsIndustries/vcv-rack-modules/compare/v2.0.0...HEAD
-[v2.0.0]: https://github.com/HugginsIndustries/vcv-rack-modules/releases/tag/v2.0.0
--->
+[Unreleased]: https://github.com/HugginsIndustries/FUNmodules/compare/v2.0.0...HEAD
+[v2.0.0]:     https://github.com/HugginsIndustries/FUNmodules/releases/tag/v2.0.0
