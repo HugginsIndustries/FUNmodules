@@ -1,6 +1,7 @@
 #include "PolyQuantaCore.hpp"
 #include <cmath>
 #include <limits>
+#include <climits> // relocated MOS uses INT_MAX
 #include "ScaleDefs.hpp" // centralized scale definitions (single source of truth)
 
 namespace hi { namespace dsp {
