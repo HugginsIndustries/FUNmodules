@@ -5,7 +5,7 @@
  * labeled sections and boolean pointer menu items while preserving
  * enable/disable state logic. Implementation is verbatim.
  */
-#include "plugin.hpp"
+#include "../../plugin.hpp"
 namespace hi { namespace ui { namespace menu {
     using Menu = rack::ui::Menu; using MenuSeparator = rack::ui::MenuSeparator; using MenuItem = rack::ui::MenuItem;
     static inline void addSection(Menu* m, const char* label) { m->addChild(new MenuSeparator); m->addChild(rack::createMenuLabel(label)); }

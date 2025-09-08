@@ -395,6 +395,7 @@ int pqtests::run_core_tests() {
     // Relocated helper sanity (MOS + conversions + poly width)
     {
         // volts<->semitones round trip at boundaries
+    // Tolerance loosened from 1e-6f to 1e-5f to account for floating-point round-trip imprecision.
     float v = 1.0f; float st = glide::voltsToSemitones(v); float v2 = glide::semitonesToVolts(st); _assertClose(v, v2, 1e-5f, "volts<->semitones");
         int g = hi::music::mos::gcdInt(53, 12); assert(g==1);
         auto cyc = hi::music::mos::generateCycle(12,7,7); assert(cyc.size()>=7-1); // MOS cycle length

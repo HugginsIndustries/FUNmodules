@@ -1,3 +1,4 @@
+#define HI_STRUM_IMPL
 #include "Strum.hpp"
 #ifndef UNIT_TESTS
 #include <rack.hpp> // Rack SDK (rack::random)

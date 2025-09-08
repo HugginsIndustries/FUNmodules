@@ -113,23 +113,11 @@
 			"label": "Build (core tests)",
 			"type": "shell",
 			"group": "build",
-			"problemMatcher": [
-				"$gcc"
-			],
-			"command": "mkdir -p build && g++ -std=c++17 -O2 -DUNIT_TESTS src/core/PolyQuantaCore.cpp src/core/ScaleDefs.cpp src/core/Strum.cpp tests/main.cpp -Isrc -o build/core_tests && ./build/core_tests",
-			"detail": "Headless build + run of core unit tests using Bash (no Rack SDK). Forward slashes & ./ for cross-platform bash shells."
+			"problemMatcher": ["$gcc"],
+			"command": "mkdir -p build && g++ -std=c++17 -O2 -Wall -DUNIT_TESTS src/core/Strum.cpp src/core/PolyQuantaCore.cpp src/core/ScaleDefs.cpp tests/main.cpp -Isrc -o build/core_tests && ./build/core_tests",
+			"detail": "Headless build + run of core unit tests (explicit Strum.cpp first)."
 		},
-		{
-			"label": "Build (core tests)",
-			"type": "shell",
-			"command": "mkdir -p build && g++ -std=c++17 -O2 -DUNIT_TESTS src/core/PolyQuantaCore.cpp src/core/ScaleDefs.cpp src/core/Strum.cpp tests/main.cpp -Isrc -o build/core_tests && ./build/core_tests"
-		},
-		{
-			"label": "Build (core tests)",
-			"type": "shell",
-			"command": "mkdir -p build && g++ -std=c++17 -O2 -DUNIT_TESTS src/core/PolyQuantaCore.cpp src/core/ScaleDefs.cpp src/core/Strum.cpp tests/main.cpp -Isrc -o build/core_tests && ./build/core_tests",
-			"problemMatcher": []
-		}
+		
 	],
 	"inputs": [
 		{
