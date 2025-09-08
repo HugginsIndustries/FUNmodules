@@ -1,20 +1,11 @@
-name: build
+# .github/workflows/build.yml  (Windows job)
+name: Build (Windows / MSYS2)
 
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  workflow_dispatch:
-
-concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: true
+on: [push, pull_request]
 
 jobs:
-  windows-msys2:
+  build-windows:
     runs-on: windows-latest
-    name: Build (Windows / MSYS2)
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,54 +13,24 @@ jobs:
       - name: Set up MSYS2
         uses: msys2/setup-msys2@v2
         with:
-          update: true
-          install: >-
-            base-devel
-            make
-            zip
-            unzip
-            mingw-w64-x86_64-toolchain
+            update: true
+            install: >-
+              make
+              zip
+              unzip
+              mingw-w64-x86_64-gcc
 
       - name: Build with Rack SDK
-        shell: msys2 {0}
-        env:
-          RACK_SDK_URL: ${{ vars.RACK_SDK_URL }}
+        shell: bash
         run: |
           set -e
-          if [ -z "$RACK_SDK_URL" ]; then
-            echo "❌ RACK_SDK_URL repo variable is not set. Add it in Settings → Secrets and variables → Actions → Variables."
-            exit 1
-          fi
-
-          echo "Downloading Rack SDK from: $RACK_SDK_URL"
-          mkdir -p "$HOME/.cache"
-          SDK_ZIP="$HOME/.cache/rack-sdk.zip"
-          curl -L "$RACK_SDK_URL" -o "$SDK_ZIP"
-
-          echo "Unzipping SDK…"
-          unzip -q -o "$SDK_ZIP" -d "$HOME"
-
-          # Find the extracted SDK directory (e.g., $HOME/Rack-SDK-2.x.y/)
-          SDK_DIR=$(ls -d "$HOME"/Rack-SDK*/ | head -n 1)
-          if [ ! -d "$SDK_DIR" ]; then
-            echo "❌ Could not find extracted Rack SDK folder."
-            exit 1
-          fi
-
-          # Convert to MSYS path and export
-          export RACK_SDK="$(cygpath -u "$SDK_DIR")"
-          echo "Using RACK_SDK=$RACK_SDK"
-
-          echo "Building…"
-          make -j"$(nproc)"
-
-          echo "Packaging (make dist)…"
-          make dist
-
-      - name: Upload dist artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist-windows
-          path: dist/*.zip
-          if-no-files-found: warn
+          SDK_VER=2.6.4
+          curl -L -o rack-sdk.zip "https://vcvrack.com/downloads/Rack-SDK-${SDK_VER}-win-x64.zip"
+          unzip -q rack-sdk.zip -d "$HOME"
+          # Export BOTH vars; Makefile expects RACK_DIR
+          echo "RACK_DIR=$HOME/Rack-SDK" >> $GITHUB_ENV
+          echo "RACK_SDK=$HOME/Rack-SDK" >> $GITHUB_ENV
+          # Sanity: prove plugin.mk is visible
+          test -f "$HOME/Rack-SDK/plugin.mk" || { echo "plugin.mk not found"; ls -la "$HOME"; exit 1; }
+          make clean || true
+          make -j2
