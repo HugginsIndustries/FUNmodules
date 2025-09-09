@@ -1448,25 +1448,38 @@ struct PolyQuanta : Module {
                     
                     // FIX: Directional Snap with direction hysteresis (before latch decision)
                     int baseStep = (int)std::round(fs);  // default for non-directional modes
+                    int dir = 0;  // direction state for Directional Snap
                     if (quantRoundMode == 0) {  // Directional Snap
                         float Hc = rack::clamp(stickinessCents, 0.f, 20.f);
                         const float maxAllowed = 0.4f * 1200.f * (period / (float)N);
                         if (Hc > maxAllowed) Hc = maxAllowed;
                         float Hs = (Hc * (float)N) / 1200.0f;                      // cents→steps
-                        float Hd = std::max(0.5f*Hs, 0.01f);                       // direction hysteresis (steps)
+                        float Hd = std::max(0.75f*Hs, 0.02f);                      // FIX: widen direction hysteresis a bit
                         double d = fs - lastFs[c];
-                        int dir = lastDir[c];
+                        dir = lastDir[c];
                         if (d > +Hd) dir = +1;
                         else if (d < -Hd) dir = -1;
-                        lastDir[c] = dir;
-                        lastFs[c]  = fs;
                         if (dir > 0)      baseStep = (int)std::ceil(fs);
                         else if (dir < 0) baseStep = (int)std::floor(fs);
                         else              baseStep = latchedStep[c];  // hold candidate at peak
+                        lastDir[c] = dir;
+                        lastFs[c]  = fs;
                     }
                     if (!hi::dsp::isAllowedStep(latchedStep[c], qc)) { latchedStep[c] = hi::dsp::nearestAllowedStep(latchedStep[c], (float)fs, qc); }
-                    // FIX: center-anchored Schmitt hysteresis around latchedStep center
-                    int targetStep = hi::dsp::nearestAllowedStep(baseStep, (float)fs, qc);
+                    // FIX: Directional Snap should move at most one allowed degree in the current direction.
+                    // Use nextAllowedStep from the *latched* degree when Directional Snap is active.
+                    int targetStep;
+                    if (quantRoundMode == 0) { // Directional Snap
+                        int candidate = latchedStep[c];
+                        if (dir > 0)      candidate = hi::dsp::nextAllowedStep(latchedStep[c], +1, qc);
+                        else if (dir < 0) candidate = hi::dsp::nextAllowedStep(latchedStep[c], -1, qc);
+                        // dir == 0 → hold candidate at current latched step
+                        targetStep = candidate;
+                    } else {
+                        // Other modes unchanged
+                        targetStep = hi::dsp::nearestAllowedStep(baseStep, (float)fs, qc);
+                    }
+                    // (existing center-anchored Schmitt latch logic follows)
                     float Hc = rack::clamp(stickinessCents, 0.f, 20.f);
                     float stepCents = 1200.f * (period / (float)N);
                     const float maxAllowed = 0.4f * stepCents;

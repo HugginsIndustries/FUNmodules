@@ -834,6 +834,56 @@ int pqtests::run_core_tests() {
         }
     }
 
+#if 1  // FIX: Directional Snap behavior guards
+    // --- DirSnap_NoSkip_AfterFlip ---
+    {
+        hi::dsp::QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 0;
+        qc.useCustom = true; qc.customFollowsRoot = true;
+        qc.customMask12 = 0b010010101001; // C min pentatonic {0,3,5,7,10}
+        int last = 0;
+        for (int k = 0; k < 2400; ++k) {
+            const double pi = 3.14159265358979323846;
+            double fs = 2.0 * std::sin(k * 2.0 * pi / 2400.0); // slow, wide sweep
+            int baseUp = (int)std::ceil(fs);
+            int baseDn = (int)std::floor(fs);
+            int base   = (fs >= (double)last) ? baseUp : baseDn; // emulate directional intent
+            int target = hi::dsp::_nearestAllowedStepRoot(base, (float)fs, qc);
+            // Emulate module's rule: only neighbor in current direction is allowed
+            int nextUp = hi::dsp::nextAllowedStep(last, +1, qc);
+            int nextDn = hi::dsp::nextAllowedStep(last, -1, qc);
+            if (target != last) {
+                int expected = (target > last) ? nextUp : nextDn;
+                assert(target == expected && "Directional Snap skipped an allowed degree after direction flip");
+            }
+            last = target;
+        }
+    }
+
+    // --- DirSnap_VeryLowFreq_PeakHold ---
+    {
+        hi::dsp::QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 0;
+        qc.useCustom = true; qc.customFollowsRoot = true;
+        qc.customMask12 = 0b010010101001; // C min pentatonic
+        const float cents = 10.0f;
+        const float Hs = (cents * (float)qc.edo) / 1200.0f;
+        const float Hd = std::max(0.75f*Hs, 0.02f);
+        const float amp = Hd * 0.8f; // below direction hysteresis → must not flip at crest
+        std::vector<int> steps;
+        for (int k = 0; k < 2400; ++k) {
+            const double pi = 3.14159265358979323846;
+            double fs = 0.5 + amp * std::sin(k * 2.0 * pi / 2400.0);
+            int baseUp = (int)std::ceil(fs);
+            int baseDn = (int)std::floor(fs);
+            int base   = (k > 0 && fs < (double)steps.back()) ? baseDn : baseUp;
+            int tgt    = hi::dsp::_nearestAllowedStepRoot(base, (float)fs, qc);
+            steps.push_back(tgt);
+        }
+        std::vector<int> uniq = steps; std::sort(uniq.begin(), uniq.end());
+        uniq.erase(std::unique(uniq.begin(), uniq.end()), uniq.end());
+        assert(uniq.size() <= 1 && "Directional Snap: crest chatter detected at very low frequency");
+    }
+#endif
+
     printf("All core tests passed.\n");
     return 0; // All assertions passed.
 }
