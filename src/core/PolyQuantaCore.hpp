@@ -87,6 +87,8 @@ float snapEDO(float volts, const QuantConfig& qc, float boundLimit = 10.f, bool 
 bool isAllowedStep(int s, const QuantConfig& qc);
 int nextAllowedStep(int start, int dir, const QuantConfig& qc);
 int nearestAllowedStep(int sGuess, float fs, const QuantConfig& qc);
+// FIX: Stateful tie-breaking version for boundary stability
+int nearestAllowedStepWithHistory(int sGuess, float fs, const QuantConfig& qc, int prevStep);
 
 // -----------------------------------------------------------------------------
 // Phase 3D: CoreState captures ONLY quantization/tuning/scale/mask/rounding/

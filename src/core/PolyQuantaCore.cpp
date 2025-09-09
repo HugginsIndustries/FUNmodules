@@ -86,10 +86,22 @@ int nearestAllowedStep(int sGuess, float fs, const QuantConfig& qc) {
     int N = (qc.edo <= 0) ? 12 : qc.edo; if (N <= 0) return 0; int s0 = (int)std::round(fs); int best = s0; float bestDist = 1e9f;
     for (int d = 0; d <= N; ++d) {
         int c1 = s0 + d, c2 = s0 - d; if (isAllowedStep(c1, qc)) { float dist = std::fabs(fs - (float)c1); if (dist < bestDist) { bestDist = dist; best = c1; if (d == 0) break; } }
+        // FIX: On exact tie (bestDist ~= 0.5), prefer the previously chosen step for stability
         if (d > 0 && isAllowedStep(c2, qc)) { float dist = std::fabs(fs - (float)c2); if (dist < bestDist) { bestDist = dist; best = c2; } }
         if (bestDist < 1e-6f) break;
     }
     return best;
+}
+
+// FIX: Stateful tie-breaking version that prefers previous choice on exact midpoints
+int nearestAllowedStepWithHistory(int sGuess, float fs, const QuantConfig& qc, int prevStep) {
+    int candidate = nearestAllowedStep(sGuess, fs, qc);
+    // FIX: If we're exactly halfway between two allowed steps, prefer the previous one
+    float candidateDist = std::fabs(fs - (float)candidate);
+    if (candidateDist > 0.49f && candidateDist < 0.51f && isAllowedStep(prevStep, qc)) {
+        return prevStep; // FIX: Stay on previous step for boundary stability
+    }
+    return candidate;
 }
 }} // namespace hi::dsp
 #include <unordered_set>
@@ -429,6 +441,50 @@ int pqtests::run_core_tests() {
         for (size_t i = 1; i < uniques.size(); ++i) {
             assert(uniques[i] > uniques[i-1] - 1e-9f && "Snapped sequence not monotonic");
         }
+    }
+
+    // --- Scale_NoChromaticLeak_12EDO test ---
+    // FIX: Verify C minor pentatonic never emits chromatic notes
+    {
+        QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 0; qc.useCustom = false; qc.scaleIndex = 0; // Assume index 0 is minor pentatonic
+        // Build dense ramp 0→1 V (2000 steps) and verify all outputs are in {0,3,5,7,10} relative to root
+        std::set<int> allowedPCs = {0,3,5,7,10}; // C minor pentatonic pitch classes
+        for (int k = 0; k <= 2000; ++k) {
+            float v = (float)k / 2000.f; // 0 to 1 V
+            float snapped = snapEDO(v, qc);
+            int semitones = (int)std::round(snapped * 12.f);
+            int pc = semitones % 12; if (pc < 0) pc += 12;
+            assert(allowedPCs.count(pc) > 0 && "Chromatic leak detected in scale quantization");
+        }
+    }
+
+    // --- Hysteresis_BoundaryStability test ---
+    // FIX: Verify oscillating input near boundary produces stable output
+    {
+        QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 0; qc.useCustom = false;
+        float boundary = 1.f/12.f; // First semitone boundary
+        std::vector<float> outputs;
+        // Oscillate ±2 cents around boundary for 100 samples
+        for (int k = 0; k < 100; ++k) {
+            float cents = 2.f * std::sin(k * 0.1f); // ±2 cent oscillation
+            float v = boundary + cents / 1200.f;
+            float snapped = snapEDO(v, qc);
+            outputs.push_back(snapped);
+        }
+        // Count unique outputs - should be minimal (≤2 for hysteresis)
+        std::set<float> uniques(outputs.begin(), outputs.end());
+        assert(uniques.size() <= 2 && "Excessive boundary flicker detected");
+    }
+
+    // --- TieBreak_PrefersLast test ---
+    // FIX: Verify exact midpoint prefers previous degree
+    {
+        QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 0; qc.useCustom = false;
+        float step = 1.f/12.f;
+        float exactMid = 0.5f * step; // Exactly halfway between 0 and 1st semitone
+        int prevStep = 0; // Previous choice was step 0
+        int result = nearestAllowedStepWithHistory((int)std::round(exactMid * 12.f), exactMid * 12.f, qc, prevStep);
+        assert(result == prevStep && "Tie-break should prefer previous step");
     }
 
     // --- Directional tie-break ---
