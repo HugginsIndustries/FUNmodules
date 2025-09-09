@@ -397,6 +397,9 @@ struct PolyQuanta : Module {
     // Previous pre-quant (relative) voltage per channel for Directional Snap
     float prevYRel[16] = {0.f};
     // Latched quantizer step per channel (integer index 0..N-1) and init flags
+    // FIX: Directional Snap state
+    double lastFs[16] = {0.0};
+    int    lastDir[16] = {0};  // -1=down, 0=hold, +1=up
     int  latchedStep[16];
     bool latchedInit[16];
     // Track last-applied quantizer config to know when to invalidate latches
@@ -1434,8 +1437,49 @@ struct PolyQuanta : Module {
                     hi::dsp::QuantConfig qc; if (tuningMode == 0) { qc.edo = (edo <= 0) ? 12 : edo; qc.periodOct = 1.f; } else { qc.edo = tetSteps > 0 ? tetSteps : 9; qc.periodOct = (tetPeriodOct > 0.f) ? tetPeriodOct : std::log2(3.f/2.f); }
                     qc.root = rootNote; qc.useCustom = useCustomScale; qc.customFollowsRoot = customScaleFollowsRoot; qc.customMask12 = customMask12; qc.customMask24 = customMask24; qc.scaleIndex = scaleIndex; if (qc.useCustom && (qc.edo!=12 && qc.edo!=24)) { if ((int)customMaskGeneric.size()==qc.edo) { qc.customMaskGeneric=customMaskGeneric.data(); qc.customMaskLen=(int)customMaskGeneric.size(); } }
                     bool cfgChanged = (prevRootNote!=rootNote || prevScaleIndex!=scaleIndex || prevEdo!=qc.edo || prevTetSteps!=tetSteps || prevTetPeriodOct!=qc.periodOct || prevTuningMode!=tuningMode || prevUseCustomScale!=useCustomScale || prevCustomFollowsRoot!=customScaleFollowsRoot || prevCustomMask12!=customMask12 || prevCustomMask24!=customMask24); if (cfgChanged) { for (int k=0;k<16;++k) latchedInit[k]=false; prevRootNote=rootNote; prevScaleIndex=scaleIndex; prevEdo=qc.edo; prevTetSteps=tetSteps; prevTetPeriodOct=qc.periodOct; prevTuningMode=tuningMode; prevUseCustomScale=useCustomScale; prevCustomFollowsRoot=customScaleFollowsRoot; prevCustomMask12=customMask12; prevCustomMask24=customMask24; }
-                    int N = qc.edo; float period = qc.periodOct; float fs = yRel * (float)N / period; if (!latchedInit[c]) { latchedStep[c] = hi::dsp::nearestAllowedStep( (int)std::round(fs), fs, qc ); latchedInit[c]=true; } if (!hi::dsp::isAllowedStep(latchedStep[c], qc)) { latchedStep[c] = hi::dsp::nearestAllowedStep(latchedStep[c], fs, qc); }
-                    float dV = period / (float)N; float stepCents = 1200.f * dV; float Hc = rack::clamp(stickinessCents, 0.f, 20.f); float maxAllowed = 0.4f * stepCents; if (Hc > maxAllowed) Hc = maxAllowed; float H_V = Hc / 1200.f; int upStep = hi::dsp::nextAllowedStep(latchedStep[c], +1, qc); int dnStep = hi::dsp::nextAllowedStep(latchedStep[c], -1, qc); float center = (latchedStep[c] / (float)N) * period; float vUp = (upStep / (float)N) * period; hi::dsp::HystSpec hs{ (vUp - center) * 2.f, H_V }; auto th = hi::dsp::computeHysteresis(center, hs); float T_up = th.up; float T_down = th.down; if (yRel >= T_up && upStep != latchedStep[c]) latchedStep[c] = upStep; else if (yRel <= T_down && dnStep != latchedStep[c]) latchedStep[c] = dnStep; yQRel = hi::dsp::snapEDO((latchedStep[c] / (float)N) * period, qc, 10.f, false, 0);
+                    int N = qc.edo; float period = qc.periodOct;
+                    double fs = (double)yRel * (double)N / (double)period;
+                    if (!latchedInit[c]) {
+                        latchedStep[c] = hi::dsp::nearestAllowedStep((int)std::round(fs), (float)fs, qc);
+                        lastFs[c]  = fs;   // FIX: seed direction state with current fs
+                        lastDir[c] = 0;    // FIX: start neutral so peaks don't mis-set direction
+                        latchedInit[c] = true;
+                    }
+                    
+                    // FIX: Directional Snap with direction hysteresis (before latch decision)
+                    int baseStep = (int)std::round(fs);  // default for non-directional modes
+                    if (quantRoundMode == 0) {  // Directional Snap
+                        float Hc = rack::clamp(stickinessCents, 0.f, 20.f);
+                        const float maxAllowed = 0.4f * 1200.f * (period / (float)N);
+                        if (Hc > maxAllowed) Hc = maxAllowed;
+                        float Hs = (Hc * (float)N) / 1200.0f;                      // cents→steps
+                        float Hd = std::max(0.5f*Hs, 0.01f);                       // direction hysteresis (steps)
+                        double d = fs - lastFs[c];
+                        int dir = lastDir[c];
+                        if (d > +Hd) dir = +1;
+                        else if (d < -Hd) dir = -1;
+                        lastDir[c] = dir;
+                        lastFs[c]  = fs;
+                        if (dir > 0)      baseStep = (int)std::ceil(fs);
+                        else if (dir < 0) baseStep = (int)std::floor(fs);
+                        else              baseStep = latchedStep[c];  // hold candidate at peak
+                    }
+                    if (!hi::dsp::isAllowedStep(latchedStep[c], qc)) { latchedStep[c] = hi::dsp::nearestAllowedStep(latchedStep[c], (float)fs, qc); }
+                    // FIX: center-anchored Schmitt hysteresis around latchedStep center
+                    int targetStep = hi::dsp::nearestAllowedStep(baseStep, (float)fs, qc);
+                    float Hc = rack::clamp(stickinessCents, 0.f, 20.f);
+                    float stepCents = 1200.f * (period / (float)N);
+                    const float maxAllowed = 0.4f * stepCents;
+                    if (Hc > maxAllowed) Hc = maxAllowed;
+                    float Hs = (Hc * (float)N) / 1200.0f;             // convert cents→steps
+                    float d  = (float)(fs - (double)latchedStep[c]);  // steps from latched center
+                    float upThresh = +0.5f + Hs;
+                    float downThresh = -0.5f - Hs;
+                    // Switch only when crossing thresholds and only by ±1 step
+                    if (targetStep > latchedStep[c] && d > upThresh) latchedStep[c] = latchedStep[c] + 1;
+                    else if (targetStep < latchedStep[c] && d < downThresh) latchedStep[c] = latchedStep[c] - 1;
+                    // else hold at latchedStep[c]
+                    yQRel = hi::dsp::snapEDO((latchedStep[c] / (float)N) * period, qc, 10.f, false, 0);
                     if (quantRoundMode != 1) { float rawSemi = yRel * 12.f; float snappedSemi = yQRel * 12.f; float diff = rawSemi - snappedSemi; float prev = prevYRel[c]; float dir = (yRel > prev + 1e-6f) ? 1.f : (yRel < prev - 1e-6f ? -1.f : 0.f); int slopeDir = (dir > 0.f) ? +1 : (dir < 0.f ? -1 : 0); hi::dsp::RoundMode rm = (quantRoundMode==0? hi::dsp::RoundMode::Directional : (quantRoundMode==2? hi::dsp::RoundMode::Ceil : (quantRoundMode==3? hi::dsp::RoundMode::Floor : hi::dsp::RoundMode::Nearest))); hi::dsp::RoundPolicy rp{rm}; (void)hi::dsp::pickRoundingTarget(0, diff, (int)slopeDir, rp); if (rm == hi::dsp::RoundMode::Directional) { if (slopeDir > 0 && diff > 0.f) { float nudged = quantizeToScale(yQRel + (1.f/12.f)*0.51f, 0, clipLimit, true); if (nudged > yQRel + 1e-5f) yQRel = nudged; } else if (slopeDir < 0 && diff < 0.f) { float nudged = quantizeToScale(yQRel - (1.f/12.f)*0.51f, 0, clipLimit, true); if (nudged < yQRel - 1e-5f) yQRel = nudged; } } else if (rm == hi::dsp::RoundMode::Ceil) { if (diff > 1e-5f) { float nudged = quantizeToScale(yQRel + (1.f/12.f)*0.51f, 0, clipLimit, true); if (nudged > yQRel + 1e-5f) yQRel = nudged; } } else if (rm == hi::dsp::RoundMode::Floor) { if (diff < -1e-5f) { float nudged = quantizeToScale(yQRel - (1.f/12.f)*0.51f, 0, clipLimit, true); if (nudged < yQRel - 1e-5f) yQRel = nudged; } } prevYRel[c] = yRel; } else { prevYRel[c] = yRel; }
                 } else { prevYRel[c] = yRel; }
                 float yQAbs = yQRel + rangeOffset; float t = clamp(quantStrength, 0.f, 1.f); float yMix = yPreForQ + (yQAbs - yPreForQ) * t; // Quant strength blend (raw = yPreForQ)

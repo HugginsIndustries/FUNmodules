@@ -77,6 +77,7 @@ float snapEDO(float volts, const QuantConfig& qc, float boundLimit, bool boundTo
         }
         return baseStep; // fallback
     };
+    (void)nearestAllowedStep; // FIX: silence -Wunused-but-set-variable
 
     // Convert volts to step index, accounting for root offset & shiftSteps.
     const float stepsPerVolt = (float)edo / periodSize; // number of EDO steps per volt span
@@ -425,9 +426,27 @@ void coreFromJson(const json_t* root, CoreState& s) noexcept {
 // a standalone console runner (tests/main.cpp) outside the Rack build.
 // -----------------------------------------------------------------------------
 #ifdef UNIT_TESTS
+#include <algorithm> // FIX: for std::clamp in test-only code
 #include <vector>
 #include <iostream> // (Only used in optional diagnostic branches; no output on success.)
 #include "Strum.hpp" // ensure strum namespace visible in test build
+
+// FIX: file-scope test helper for latch behavior (center-anchored, ±0.5±Hs)
+static int _test_schmittLatch(int lastStep, double fs, int targetStep, float stickinessCents, const hi::dsp::QuantConfig& qc) {
+    const int N = (qc.edo > 0 ? qc.edo : 12);
+    float Hc = std::clamp(stickinessCents, 0.f, 20.f);  // FIX: test build uses C++17
+    const float stepCents = 1200.f * (qc.periodOct / (float)N);
+    const float maxAllowed = 0.4f * stepCents;
+    if (Hc > maxAllowed) Hc = maxAllowed;
+    const float Hs = (Hc * (float)N) / 1200.0f;   // cents→steps
+    const float d  = (float)(fs - (double)lastStep);
+    const float upThresh   = +0.5f + Hs;
+    const float downThresh = -0.5f - Hs;
+    int next = lastStep;
+    if (targetStep > lastStep && d > upThresh)        next = lastStep + 1;
+    else if (targetStep < lastStep && d < downThresh) next = lastStep - 1;
+    return next;
+}
 namespace pqtests {
     // Runs a few deterministic assertions covering boundary mapping, directional
     // tie‑break logic, hysteresis threshold math, and the generic 13‑EDO mask parity
@@ -461,7 +480,7 @@ int pqtests::run_core_tests() {
     // points (n + 0.5)/12 map upward (std::round tie away from zero) preserving
     // existing shipping behavior.
     {
-        QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 0; qc.useCustom = false;
+        hi::dsp::QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 0; qc.useCustom = false;
         const float step = 1.f / 12.f;
         std::vector<float> uniques;
         for (int k = 0; k <= 12; ++k) {
@@ -487,7 +506,7 @@ int pqtests::run_core_tests() {
     // --- Scale_NoChromaticLeak_12EDO test ---
     // FIX: Verify C minor pentatonic never emits chromatic notes
     {
-        QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 0;
+        hi::dsp::QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 0;
         qc.useCustom = true; qc.customFollowsRoot = true;
         qc.customMask12 = 0b010010101001; // FIX: C minor pentatonic {0,3,5,7,10}, LSB=pc0 (0x4A9, 1193)
         // Build dense ramp 0→1 V (2000 steps) and verify all outputs are in {0,3,5,7,10} relative to root
@@ -504,7 +523,7 @@ int pqtests::run_core_tests() {
     // --- Hysteresis_BoundaryStability test ---
     // FIX: Verify oscillating input near boundary produces stable output
     {
-        QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 0; qc.useCustom = false;
+        hi::dsp::QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 0; qc.useCustom = false;
         float boundary = 1.f/12.f; // First semitone boundary
         std::vector<float> outputs;
         // Oscillate ±2 cents around boundary for 100 samples
@@ -522,7 +541,7 @@ int pqtests::run_core_tests() {
     // --- TieBreak_PrefersLast test ---
     // FIX: Verify exact midpoint prefers previous degree
     {
-        QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 0; qc.useCustom = false;
+        hi::dsp::QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 0; qc.useCustom = false;
         float step = 1.f/12.f;
         float exactMid = 0.5f * step; // Exactly halfway between 0 and 1st semitone
         int prevStep = 0; // Previous choice was step 0
@@ -569,7 +588,7 @@ int pqtests::run_core_tests() {
     }
         // B5: tickStartDelays progression
         {
-            float left[16]={0.05f,0.02f,0.f,0.01f}; for(int step=0; step<5; ++step){ tickStartDelays(0.01f,4,left); for(int i=0;i<4;++i) assert(left[i]>=-1e-6f); }
+            float left[16]={0.05f,0.02f,0.f,0.01f}; for(int step=0; step<5; ++step){ hi::dsp::strum::tickStartDelays(0.01f,4,left); for(int i=0;i<4;++i) assert(left[i]>=-1e-6f); }
             for(int i=0;i<4;++i) _assertClose(left[i],0.f,1e-4f,"delay exhausted");
         }
     }
@@ -669,6 +688,153 @@ int pqtests::run_core_tests() {
         }
     }
 
+    // --- Hysteresis_PeakHold_NoChatter (latch-level) ---
+    {
+        // (helper removed — use file-scope _test_schmittLatch)
+
+        hi::dsp::QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 0;
+        qc.useCustom = true; qc.customFollowsRoot = true;
+        qc.customMask12 = 0b010010101001; // C min pentatonic {0,3,5,7,10}
+        const float cents = 10.0f; // same as UI example
+        const float Hs = (cents * (float)qc.edo) / 1200.0f;
+        const float amp = Hs * 0.8f; // below threshold ⇒ must NOT switch
+        int last = 0;
+        (void)last; // FIX: silence unused in builds where the branch doesn't reference it
+        std::vector<int> outs;
+        for (int k = 0; k < 240; ++k) {
+            double fs = 0.0 + 0.5 + amp * std::sin(k * 2.0 * 3.14159265359 / 240.0);
+            int base = (int)std::round(fs);
+            int target = hi::dsp::_nearestAllowedStepRoot(base, (float)fs, qc);
+            last = _test_schmittLatch(last, fs, target, cents, qc);
+            outs.push_back(last);
+        }
+        std::sort(outs.begin(), outs.end());
+        outs.erase(std::unique(outs.begin(), outs.end()), outs.end());
+        assert(outs.size() <= 1 && "Peak hold failed: latch changed inside hysteresis band");
+    }
+    // B5: tickStartDelays progression
+    {
+        float left[16]={0.05f,0.02f,0.f,0.01f}; for(int step=0; step<5; ++step){ hi::dsp::strum::tickStartDelays(0.01f,4,left); for(int i=0;i<4;++i) assert(left[i]>=-1e-6f); }
+        for(int i=0;i<4;++i) _assertClose(left[i],0.f,1e-4f,"delay exhausted");
+    }
+
+    // --- Hysteresis thresholds ---
+    // computeHysteresis(center, {ΔV, H_V}) → {center + ΔV/2 + H_V, center - ΔV/2 - H_V}.
+    {
+        float center = 0.0f; float deltaV = 1.f/12.f; float H_V = 0.01f;
+        hi::dsp::HystSpec hs{deltaV, H_V};
+        auto thr = hi::dsp::computeHysteresis(center, hs);
+        _assertClose(thr.up,   center + 0.5f*deltaV + H_V, 1e-9f, "hyst up");
+        _assertClose(thr.down, center - 0.5f*deltaV - H_V, 1e-9f, "hyst down");
+        assert(thr.up > thr.down && "Threshold ordering invalid");
+    }
+
+    // --- 13-EDO generic mask parity (recent fix) ---
+    // Construct a byte-per-step mask allowing indices {0,3,4,7,8,11,12}. Ensure parity between
+    // isAllowedStep() and direct mask lookup AND that snapEDO only lands on allowed steps for a
+    // selection of probe voltages spanning the period.
+    {
+        hi::dsp::QuantConfig qc; qc.edo = 13; qc.periodOct = 1.f; qc.root = 0; qc.useCustom = true; qc.customFollowsRoot = true;
+        static uint8_t mask13[13] = {0};
+        int allowedIdx[] = {0,3,4,7,8,11,12};
+        for (int i : allowedIdx) mask13[i] = 1;
+        qc.customMaskGeneric = mask13; qc.customMaskLen = 13;
+        // Parity across all steps
+        for (int s = 0; s < 13; ++s) {
+            bool api = hi::dsp::isAllowedStep(s, qc);
+            bool mask = (mask13[s] != 0);
+            assert(api == mask && "Generic mask parity mismatch (byte-per-step)");
+        }
+        // Probe a range of voltages (including exact steps + midpoints) and assert snapped step is allowed.
+        const float step = 1.f / 13.f;
+        for (int k = 0; k <= 13; ++k) {
+            float probes[2]; probes[0] = k * step; probes[1] = (k < 13) ? (k + 0.49f) * step : k * step; // stay below tie boundary
+            for (float v : probes) {
+                float snapped = hi::dsp::snapEDO(v, qc);
+                // Convert snapped volts back to (possibly >13) step domain then wrap.
+                float stepsF = snapped * qc.edo; // since periodOct = 1
+                int sIdx = (int)std::round(stepsF);
+                sIdx %= qc.edo; if (sIdx < 0) sIdx += qc.edo;
+                assert(mask13[sIdx] && "snapEDO produced disallowed step under generic mask");
+            }
+        }
+    }
+
+    // (CoreState JSON round-trip test removed in UNIT_TESTS build: JSON helpers compiled out.)
+    // ------------------------------------------------------------------
+    // (B) Added normalization contract tests (glide unit semantics).
+    // Duration model: time ≈ distance / unitsPerSec with unitsPerSec = 1.
+    // These do not exercise module slews; they validate proportionality.
+    // ------------------------------------------------------------------
+    // Helpers (B.1)
+    {
+        auto duration_volts = [](float dV) -> float { return std::fabs(dV); };
+        auto duration_cents = [](float dV) -> float { return std::fabs(dV) * 12.0f; }; // 1 V = 12 semitones (units cancel in ratios)
+        auto duration_steps = [](float dV, float deltaV) -> float { return std::fabs(dV) / std::max(1e-12f, deltaV); };
+        auto duration_equal_time = [](float /*dV*/) -> float { return 1.0f; }; // Equal-time: all jumps same duration
+        // Equal-time legacy (normalization disabled) ratio test
+        {
+            float tA = duration_equal_time(2.0f);
+            float tB = duration_equal_time(0.5f);
+            assert(std::fabs((tA / tB) - 1.0f) < 1e-6f); // Expect 1:1
+        }
+        // Volts-linear ratio test (B.2)
+        {
+            float t1 = duration_volts(1.0f);   // 1 V jump
+            float t2 = duration_volts(0.5f);   // 0.5 V jump
+            assert(std::fabs((t1 / t2) - 2.0f) < 1e-6f); // Expect ratio ≈ 2.0
+        }
+        // Cent-linear ratio test (B.3)
+        {
+            float dV_12semi = 1.0f;           // 12 semitones = 1 V
+            float dV_1semi  = 1.0f / 12.0f;   // 1 semitone
+            float t12 = duration_cents(dV_12semi);
+            float t01 = duration_cents(dV_1semi);
+            assert(std::fabs((t12 / t01) - 12.0f) < 1e-6f); // Expect ~12.0
+        }
+        // Step-safe ratio test (octave EDO) (B.4)
+        {
+            float deltaV = 1.0f / 13.0f;      // EDO 13: ΔV per step
+            float dV_5steps = 5.0f * deltaV;
+            float dV_1step  = 1.0f * deltaV;
+            float t5 = duration_steps(dV_5steps, deltaV);
+            float t1 = duration_steps(dV_1step,  deltaV);
+            assert(std::fabs((t5 / t1) - 5.0f) < 1e-6f); // Expect ~5.0
+        }
+        // Step-safe ratio test (non-octave TET) (B.5)
+        {
+            float periodOct = std::log2(3.0f); // tritave
+            float deltaV = periodOct / 9.0f;   // N = 9 steps
+            float dV_7steps = 7.0f * deltaV;
+            float dV_1step  = 1.0f * deltaV;
+            float t7 = duration_steps(dV_7steps, deltaV);
+            float t1 = duration_steps(dV_1step,  deltaV);
+            assert(std::fabs((t7 / t1) - 7.0f) < 1e-6f); // Expect ~7.0
+        }
+    }
+
+    // --- Directional Snap Monotonicity Test ---
+    {
+        hi::dsp::QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 0;
+        qc.useCustom = true; qc.customFollowsRoot = true;
+        qc.customMask12 = 0b010010101001; // C min pentatonic {0,3,5,7,10}
+        const float cents = 10.0f;
+        std::vector<int> outs;
+        int last = 0;
+        // Monotonic upward ramp: 0.0 → 1.0 in 100 steps
+        for (int k = 0; k <= 100; ++k) {
+            double fs = (double)k / 100.0; // 0.0 → 1.0
+            int target = hi::dsp::_nearestAllowedStepRoot((int)std::round(fs * 12.0), (float)(fs * 12.0), qc);
+            last = _test_schmittLatch(last, fs * 12.0, target, cents, qc);
+            outs.push_back(last);
+        }
+        // Check monotonicity: each output ≥ previous
+        for (size_t i = 1; i < outs.size(); ++i) {
+            assert(outs[i] >= outs[i-1] && "Directional Snap failed monotonicity test");
+        }
+    }
+
+    printf("All core tests passed.\n");
     return 0; // All assertions passed.
 }
 #endif // UNIT_TESTS
