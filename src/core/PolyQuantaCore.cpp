@@ -6,6 +6,56 @@
 #include "ScaleDefs.hpp" // centralized scale definitions (single source of truth)
 
 namespace hi { namespace dsp {
+// FIX: robust modulo for negatives (pitch-class math)
+static inline int _modWrap(int x, int m) {
+  int r = x % m;
+  return (r < 0) ? r + m : r;
+}
+
+// FIX: mask check in pitch-class space relative to root (honors customFollowsRoot)
+static inline bool _isAllowedStepRootRel(int step, const QuantConfig& qc) {
+  const int edo = (qc.edo > 0 ? qc.edo : 12);
+  const int rootShift = qc.customFollowsRoot ? qc.root : 0;
+  const int pcRel = _modWrap(step - rootShift, edo);
+  // Custom mask path (unchanged)
+  if (qc.useCustom) {
+    if (edo == 12) return ((qc.customMask12 >> pcRel) & 1u) != 0u;
+    if (edo == 24) return ((qc.customMask24 >> pcRel) & 1u) != 0u;
+    if (qc.customMaskGeneric && qc.customMaskLen == edo) return qc.customMaskGeneric[pcRel] != 0;
+    return true; // no custom mask set ⇒ chromatic
+  }
+  // BUILT-IN SCALE path via ScaleDefs
+  if (edo == 12) {
+    const auto* scales = hi::music::scales12();
+    if (qc.scaleIndex >= 0 && qc.scaleIndex < hi::music::NUM_SCALES12) {
+      uint32_t mask12 = scales[qc.scaleIndex].mask;
+      return ((mask12 >> pcRel) & 1u) != 0u;
+    }
+  }
+  if (edo == 24) {
+    const auto* scales = hi::music::scales24();
+    if (qc.scaleIndex >= 0 && qc.scaleIndex < hi::music::NUM_SCALES24) {
+      uint32_t mask24 = scales[qc.scaleIndex].mask;
+      return ((mask24 >> pcRel) & 1u) != 0u;
+    }
+  }
+  return true;
+}
+
+// FIX: strictly choose nearest ALLOWED degree (never chromatic)
+static int _nearestAllowedStepRoot(int sGuess, float fs, const QuantConfig& qc) {
+  if (_isAllowedStepRootRel(sGuess, qc)) return sGuess;
+  const int maxScan = (qc.edo > 0 ? qc.edo : 12) + 1;
+  int best = sGuess; float bestDist = std::numeric_limits<float>::infinity();
+  for (int d = 1; d <= maxScan; ++d) {
+    int up = sGuess + d, dn = sGuess - d;
+    if (_isAllowedStepRootRel(up, qc)) { float du = fabsf((float)up - fs); if (du < bestDist) { bestDist = du; best = up; } }
+    if (_isAllowedStepRootRel(dn, qc)) { float dd = fabsf(fs - (float)dn); if (dd < bestDist) { bestDist = dd; best = dn; } }
+    if (bestDist == 0.f) break;
+  }
+  return best;
+}
+
 // (Verbatim moved from PolyQuanta.cpp; formatting and logic preserved)
 float snapEDO(float volts, const QuantConfig& qc, float boundLimit, bool boundToLimit, int shiftSteps) {
     // Custom masks for 12/24 or generic length2, length3 etc sequences. (Originally: allows any subset of steps)
@@ -14,18 +64,8 @@ float snapEDO(float volts, const QuantConfig& qc, float boundLimit, bool boundTo
 
     // Helper lambda (verbatim; no behavior change). Removed unused lambda from earlier version.
     auto isAllowedStep = [&](int step) -> bool {
-        if (!qc.useCustom) return true;
-        int s = step;
-        if (qc.customFollowsRoot) s -= qc.root; // shift mask alignment with root
-        // Wrap negative indices into positive domain
-        s %= edo; if (s < 0) s += edo;
-        if (edo == 12) return (qc.customMask12 >> s) & 1U;
-        if (edo == 24) return (qc.customMask24 >> s) & 1U;
-    // Generic EDO branch (Phase 3 bug fix): generic masks are BYTE-PER-STEP, matching hi::dsp::isAllowedStep.
-    // 0 byte = disallowed, non-zero = allowed. Previous bit-packed assumption collapsed many degrees.
-    if (qc.customMaskGeneric && qc.customMaskLen == edo) return qc.customMaskGeneric[s] != 0; // direct lookup
-    if (qc.customMaskGeneric && qc.customMaskLen != edo) { /* length mismatch: allow all (safe fallback) */ return true; }
-    return true; // no generic mask provided => allow all (original fallback behavior)
+        // FIX: keep local, root-relative checker; do NOT replace with global helpers.
+        return _isAllowedStepRootRel(step, qc);
     };
     // (Removed previously unused nextAllowedStep lambda to silence warning; logic elsewhere unaffected.)
     auto nearestAllowedStep = [&](int baseStep) -> int {
@@ -41,8 +81,9 @@ float snapEDO(float volts, const QuantConfig& qc, float boundLimit, bool boundTo
     // Convert volts to step index, accounting for root offset & shiftSteps.
     const float stepsPerVolt = (float)edo / periodSize; // number of EDO steps per volt span
     float rawSteps = volts * stepsPerVolt + (float)qc.root + (float)shiftSteps;
-    int baseStep = (int)std::round(rawSteps);
-    int quantStep = nearestAllowedStep(baseStep);
+    int baseStep = (int)std::round(rawSteps); // keep your current RoundPolicy
+    // FIX: nearest ALLOWED step (root-relative), then feed hysteresis
+    int quantStep = _nearestAllowedStepRoot(baseStep, rawSteps, qc);
 
     // Bound quantized step within a symmetric range if requested.
     if (boundToLimit) {
@@ -446,7 +487,9 @@ int pqtests::run_core_tests() {
     // --- Scale_NoChromaticLeak_12EDO test ---
     // FIX: Verify C minor pentatonic never emits chromatic notes
     {
-        QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 0; qc.useCustom = false; qc.scaleIndex = 0; // Assume index 0 is minor pentatonic
+        QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 0;
+        qc.useCustom = true; qc.customFollowsRoot = true;
+        qc.customMask12 = 0b010010101001; // FIX: C minor pentatonic {0,3,5,7,10}, LSB=pc0 (0x4A9, 1193)
         // Build dense ramp 0→1 V (2000 steps) and verify all outputs are in {0,3,5,7,10} relative to root
         std::set<int> allowedPCs = {0,3,5,7,10}; // C minor pentatonic pitch classes
         for (int k = 0; k <= 2000; ++k) {
