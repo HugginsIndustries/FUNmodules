@@ -2080,7 +2080,7 @@ struct PolyQuantaWidget : ModuleWidget {
         // Quantizer position submenu (new)
         menu->addChild(rack::createSubmenuItem("Signal chain →", "", [m](rack::ui::Menu* sm){
             // Quantizer position toggle (no math changes).
-            sm->addChild(rack::createCheckMenuItem("Legacy: Quantize → Slew (Q→S)", "", [m]{ return m->quantizerPos == PolyQuanta::QuantizerPos::Pre; }, [m]{ m->quantizerPos = PolyQuanta::QuantizerPos::Pre; }));
+            sm->addChild(rack::createCheckMenuItem("Pitch-bend: Quantize → Slew (Q→S)", "", [m]{ return m->quantizerPos == PolyQuanta::QuantizerPos::Pre; }, [m]{ m->quantizerPos = PolyQuanta::QuantizerPos::Pre; }));
             sm->addChild(rack::createCheckMenuItem("Pitch-accurate: Slew → Quantize (S→Q)", "", [m]{ return m->quantizerPos == PolyQuanta::QuantizerPos::Post; }, [m]{ m->quantizerPos = PolyQuanta::QuantizerPos::Post; }));
         }));
         // Status line
