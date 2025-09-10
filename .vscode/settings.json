@@ -1,33 +1,103 @@
 {
-  // No configurationProvider, no compileCommands. We'll drive cpptools directly.
-  "C_Cpp.errorSquiggles": "disabled", // Disable error squiggles
-  //"C_Cpp.errorSquiggles": "enabledIfIncludesResolve",
+  // ── C/C++ engine & diagnostics ────────────────────────────────────────────────
+  // Keep cpptools quiet; we'll rely on clangd + compile_commands.json
+  "C_Cpp.errorSquiggles": "disabled",
+  "C_Cpp.configurationWarnings": "disabled",
 
-  // Friendly MSYS2 terminal env (unchanged)
+  // Point cpptools (if present) at the same toolchain/headers so it doesn't fight us
+  "C_Cpp.default.compilerPath": "C:/msys64/mingw64/bin/g++.exe",
+  "C_Cpp.default.intelliSenseMode": "gcc-x64",
+  "C_Cpp.default.cppStandard": "c++11",
+  "C_Cpp.default.cStandard": "c11",
+  "C_Cpp.default.defines": [
+    "_USE_MATH_DEFINES",
+    "NOMINMAX"
+  ],
+  "C_Cpp.default.includePath": [
+    "${workspaceFolder}/src",
+    "C:/dev/Rack-SDK/include",
+    "C:/dev/Rack-SDK/dep/include"
+  ],
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/compile_commands.json",
+  "C_Cpp.default.forcedInclude": [
+    "${workspaceFolder}/src/plugin.hpp"
+  ],
+
+  // ── clangd (primary language server) ─────────────────────────────────────────
+"clangd.arguments": [
+  "--background-index",
+  "--clang-tidy",
+  "--header-insertion=never",
+  "--limit-results=500",
+  "--compile-commands-dir=${workspaceFolder}",
+  // Accept MinGW/UCRT/USR compilers and bare 'g++/gcc' that clangd resolves via PATH.
+  "--query-driver=C:/msys64/mingw64/bin/*;C:/msys64/ucrt64/bin/*;C:/msys64/usr/bin/*;**/g++.exe;**/gcc.exe;**/clang.exe;**/clang++.exe",
+  // Nudge clangd away from MSVC if it can’t read the driver flags for any reason.
+  "--driver-mode=g++",
+  "--target=x86_64-w64-windows-gnu",
+  "--pch-storage=memory",
+  "--log=error"
+],
+  // Windows VS Code clients sometimes need UTF-16 offsets
+  "clangd.offsetEncoding": "utf-16",
+
+  // (Optional) make clangd the default formatter
+  // "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+  // "editor.formatOnSave": true,
+
+  // ── Terminal env for MSYS2 shells ────────────────────────────────────────────
   "terminal.integrated.env.windows": {
     "MSYSTEM": "MINGW64",
     "CHERE_INVOKING": "1"
   },
+  "terminal.integrated.profiles.windows": {
+  "MSYS2 MINGW64": {
+    "path": "C:\\msys64\\usr\\bin\\bash.exe",
+    "args": ["-li"],
+    "env": { "MSYSTEM": "MINGW64", "CHERE_INVOKING": "1" }
+  }
+  },
+  "terminal.integrated.defaultProfile.windows": "MSYS2 MINGW64",
 
-    "C_Cpp.default.forcedInclude": [
-    "${workspaceFolder}/src/plugin.hpp"
-  ],
 
-  // (Optional) lightweight file associations
+  // ── Header associations (kept + a few common C++ std headers for ergonomics) ─
   "files.associations": {
-    "cmath": "cpp",
     "any": "cpp",
     "array": "cpp",
-    "vector": "cpp",
-    "string": "cpp",
-    "memory": "cpp",
     "algorithm": "cpp",
-    "optional": "cpp",
-    "tuple": "cpp",
-    "utility": "cpp",
+    "cmath": "cpp",
+    "complex": "cpp",
+    "cctype": "cpp",
+    "cfloat": "cpp",
+    "climits": "cpp",
+    "cstddef": "cpp",
+    "cstdint": "cpp",
+    "cstdio": "cpp",
+    "cstdlib": "cpp",
+    "cstring": "cpp",
+    "cwchar": "cpp",
+    "cwctype": "cpp",
     "format": "cpp",
-    "string_view": "cpp",
+    "initializer_list": "cpp",
+    "iomanip": "cpp",
+    "iosfwd": "cpp",
+    "limits": "cpp",
+    "memory": "cpp",
     "numbers": "cpp",
-    "stop_token": "cpp"
+    "optional": "cpp",
+    "sstream": "cpp",
+    "stop_token": "cpp",
+    "string": "cpp",
+    "string_view": "cpp",
+    "tuple": "cpp",
+    "type_traits": "cpp",
+    "utility": "cpp",
+    "vector": "cpp"
+  },
+
+  // ── Keep build clutter out of the explorer ───────────────────────────────────
+  "files.exclude": {
+    "build": true,
+    "dist": true
   }
 }
