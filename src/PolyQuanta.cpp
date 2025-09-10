@@ -243,7 +243,6 @@ struct PolyQuanta : Module {
     int  quantizeOffsetModeCh[16] = {0};
     // Global convenience ("Quantize all offsets" submenu) applies this mode to all channels; kept for backward compat
     int  quantizeOffsetMode = 0;
-    bool syncGlides = false;       // when true, start new glides in lock-step across channels (default OFF)
 
     // Dual-mode globals: per-mode banks and last modes (centralized helper)
     hi::ui::dual::DualBank<float> gSlew;    // a: slew-add raw [0..1], b: attenuverter raw [0..1]
@@ -736,7 +735,6 @@ struct PolyQuanta : Module {
         json_object_set_new(rootJ, "quantizeOffsetModeCh", arr);
     }
     hi::util::jsonh::writeBool(rootJ, "quantizeOffsets", quantizeOffsetMode == 1);
-    hi::util::jsonh::writeBool(rootJ, "syncGlides",      syncGlides);
     // Dual-mode globals
     // Persist using legacy keys for backward compatibility
     hi::util::jsonh::writeBool(rootJ, "globalSlewMode", gSlew.mode);
@@ -863,7 +861,6 @@ struct PolyQuanta : Module {
         }
         for (int i=0;i<16;++i) quantizeOffsetModeCh[i] = legacyMode;
     }
-    syncGlides      = hi::util::jsonh::readBool(rootJ, "syncGlides",      syncGlides);
     // Dual-mode globals (migrated to shared DualBank)
     gSlew.mode   = hi::util::jsonh::readBool(rootJ, "globalSlewMode", gSlew.mode);
     if (auto* j = json_object_get(rootJ, "globalSlewBank0")) gSlew.a = (float)json_number_value(j);
@@ -1295,33 +1292,6 @@ struct PolyQuanta : Module {
             signArr[c]  = sign;
             aerrNArr[c] = aerrN;
         }
-        bool globalStart = modeChanged;
-    for (int c = 0; c < polyTrans.curProcN; ++c) {
-            if (signArr[c] != stepSign[c] || aerrNArr[c] > stepNorm[c]) { globalStart = true; break; }
-        }
-        if (syncGlides && globalStart) {
-            for (int c = 0; c < polyTrans.curProcN; ++c) {
-                stepSign[c] = signArr[c];
-                stepNorm[c] = std::max(aerrNArr[c], hconst::EPS_ERR);
-                float aerrV = std::fabs(targetArr[c] - lastOut[c]);
-                baseJumpV[c] = aerrV;
-                auto unitSizeVCalc = [&](){
-                    if (!glideNormEnabled) return 1.f;
-                    switch (static_cast<GlideNorm>(glideNorm)) {
-                        case GlideNorm::VoltsLinear: return 1.f;
-                        case GlideNorm::CentLinear:  return 1.f/12.f;
-                        case GlideNorm::StepSafe: {
-                            int Nsteps = (tuningMode == 0 ? ((edo <= 0) ? 12 : edo) : (tetSteps > 0 ? tetSteps : 9));
-                            float period = (tuningMode == 0) ? 1.f : ((tetPeriodOct > 0.f) ? tetPeriodOct : std::log2(3.f/2.f));
-                            return period / std::max(1, Nsteps);
-                        }
-                    }
-                    return 1.f;
-                };
-                normUnitAtStep[c] = unitSizeVCalc();
-            }
-        }
-
         // Assign strum delays per event (so Random is stable within an event)
         auto assignDelayFor = [&](int ch){
             if (!(strumEnabled && strumMs > 0.f && polyTrans.curProcN > 1)) { strumDelayAssigned[ch]=0.f; strumDelayLeft[ch]=0.f; return; }
@@ -1332,14 +1302,8 @@ struct PolyQuanta : Module {
             strumDelayLeft[ch] = tmp[ch];
         };
         if (strumEnabled && strumMs > 0.f && polyTrans.curProcN > 1) {
-            if (syncGlides) {
-                if (globalStart) {
-                    for (int c = 0; c < polyTrans.curProcN; ++c) assignDelayFor(c);
-                }
-            } else {
-                for (int c = 0; c < polyTrans.curProcN; ++c) {
-                    if (modeChanged || signArr[c] != stepSign[c] || aerrNArr[c] > stepNorm[c]) assignDelayFor(c);
-                }
+            for (int c = 0; c < polyTrans.curProcN; ++c) {
+                if (modeChanged || signArr[c] != stepSign[c] || aerrNArr[c] > stepNorm[c]) assignDelayFor(c);
             }
         }
 
@@ -1365,29 +1329,27 @@ struct PolyQuanta : Module {
             }
             bool noSlew = (sec <= hconst::MIN_SEC);
 
-            if (!syncGlides) {
-                bool modeToggle = (prevGlideNorm != glideNorm) || (prevGlideNormEnabled != glideNormEnabled) || modeChanged;
-                if (modeToggle) { stepNorm[c] = hconst::EPS_ERR; stepSign[c] = sign; }
-                if (modeToggle || sign != stepSign[c] || aerrN > stepNorm[c]) {
-                    stepSign[c] = sign;
-                    stepNorm[c] = std::max(aerrN, hconst::EPS_ERR);
-                    float aerrV0 = std::fabs(target - yPrev);
-                    baseJumpV[c] = aerrV0;
-                    auto unitSizeVCalc = [&](){
-                        if (!glideNormEnabled) return 1.f;
-                        switch (static_cast<GlideNorm>(glideNorm)) {
-                            case GlideNorm::VoltsLinear: return 1.f;
-                            case GlideNorm::CentLinear:  return 1.f/12.f;
-                            case GlideNorm::StepSafe: {
-                                int Nsteps = (tuningMode == 0 ? ((edo <= 0) ? 12 : edo) : (tetSteps > 0 ? tetSteps : 9));
-                                float period = (tuningMode == 0) ? 1.f : ((tetPeriodOct > 0.f) ? tetPeriodOct : std::log2(3.f/2.f));
-                                return period / std::max(1, Nsteps);
-                            }
+            bool modeToggle = (prevGlideNorm != glideNorm) || (prevGlideNormEnabled != glideNormEnabled) || modeChanged;
+            if (modeToggle) { stepNorm[c] = hconst::EPS_ERR; stepSign[c] = sign; }
+            if (modeToggle || sign != stepSign[c] || aerrN > stepNorm[c]) {
+                stepSign[c] = sign;
+                stepNorm[c] = std::max(aerrN, hconst::EPS_ERR);
+                float aerrV0 = std::fabs(target - yPrev);
+                baseJumpV[c] = aerrV0;
+                auto unitSizeVCalc = [&](){
+                    if (!glideNormEnabled) return 1.f;
+                    switch (static_cast<GlideNorm>(glideNorm)) {
+                        case GlideNorm::VoltsLinear: return 1.f;
+                        case GlideNorm::CentLinear:  return 1.f/12.f;
+                        case GlideNorm::StepSafe: {
+                            int Nsteps = (tuningMode == 0 ? ((edo <= 0) ? 12 : edo) : (tetSteps > 0 ? tetSteps : 9));
+                            float period = (tuningMode == 0) ? 1.f : ((tetPeriodOct > 0.f) ? tetPeriodOct : std::log2(3.f/2.f));
+                            return period / std::max(1, Nsteps);
                         }
-                        return 1.f;
-                    };
-                    normUnitAtStep[c] = unitSizeVCalc();
-                }
+                    }
+                    return 1.f;
+                };
+                normUnitAtStep[c] = unitSizeVCalc();
             }
 
             float yRaw = target;
@@ -2585,7 +2547,6 @@ struct PolyQuantaWidget : ModuleWidget {
             sm->addChild(rack::createCheckMenuItem("Cent-linear (1 V/oct)", "Seconds per semitone", [m]{ return m->glideNorm == (int)PolyQuanta::GlideNorm::CentLinear; }, [m]{ m->glideNorm = (int)PolyQuanta::GlideNorm::CentLinear; }));
             sm->addChild(rack::createCheckMenuItem("Step-safe (EDO/TET period)", "Seconds per scale step", [m]{ return m->glideNorm == (int)PolyQuanta::GlideNorm::StepSafe; }, [m]{ m->glideNorm = (int)PolyQuanta::GlideNorm::StepSafe; }));
         }));
-        hi::ui::menu::addBoolPtr(menu, "Sync glides across channels", &m->syncGlides);
         // Strum submenu
         menu->addChild(rack::createSubmenuItem("Strum", "", [m](rack::ui::Menu* sm){
             // Enabled toggle (default OFF). When enabling, auto-set spread to 100 ms if unset.

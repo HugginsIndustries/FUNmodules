@@ -6,25 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 ### Added
-- (placeholder)
+- **`PROMPT.md`**: meta prompt for crafting prompts for the Cascade AI code platform in Windsurf. Includes project context and instructions for consistent prompt crafting. (WIP)
+- **`scripts/win_msys_build.cmd`**: batch script for building the project on Windows using MSYS2/MINGW64.
+- **`scripts/win_msys_core_tests.cmd`**: batch script for running the core unit tests on Windows using MSYS2/MINGW64.
 
 ### Changed
-- (placeholder)
+- _None._
 
 ### Fixed
-- (placeholder)
+- _None._
 
 ### Removed
-- (placeholder)
+- **Sync glides across channels** feature: eliminated cross-channel glide synchronization to simplify DSP and reduce complexity. Each channel now handles glides independently (as if sync was always disabled).
 
 ### Deprecated
-- (placeholder)
+- _None._
 
 ### Security
-- (placeholder)
+- _None._
 
 ### Docs
-- (placeholder)
+- _None._
 
 
 ## [v2.0.1] — 2025-09-09 ([diff][v2.0.1-diff])
