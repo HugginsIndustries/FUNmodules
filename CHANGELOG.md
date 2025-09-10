@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Removed
 - **Sync glides across channels** feature: eliminated cross-channel glide synchronization to simplify DSP and reduce complexity. Each channel now handles glides independently (as if sync was always disabled).
+- **Glide normalization** feature: removed glide normalization enable toggle, mode selection (Volts-linear, Cent-linear, Step-safe), related DSP branches, JSON serialization, and UI menu entries. Module now uses equal-time glide behavior for all cases (preserves existing default behavior).
 
 ### Deprecated
 - _None._
