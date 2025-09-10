@@ -56,6 +56,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Docs
 - Inline comments clarify the **candidate → target → latch** flow and mask semantics in `PolyQuanta.cpp` / `PolyQuantaCore.cpp`.
+- Refresh **README.md**: new nested Contents and expanded **Modules → PolyQuanta** section (highlights, typical uses). Also clarifies quick-start, Windsurf/VS Code tasks, and terminal equivalents.
+- Update **CONTRIBUTING.md**: streamlined **Windows/MSYS2** setup, `RACK_DIR`/PATH env notes, “Build & Install” mapping to `make` targets, and troubleshooting. Adds editor setup: **clangd** config (`settings.json`), `compile_commands.json` generation, and recommended extensions.
+- Housekeeping: revise **tasks.json** (problemMatcher fix and terminal compatibility), recommend extensions in **.vscode/extensions.json**, and tidy **.gitignore** / **.gitattributes** for build artifacts and binary assets.
 
 
 ## [v2.0.0] — 2025-09-08

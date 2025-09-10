@@ -2,187 +2,157 @@
 
 Welcome! This repo contains **FUN** modules by **HugginsIndustries**. The goal: have fun.
 
+---
+
 ## TL;DR (Windows + MSYS2)
 
-~~~bash
-# 1) Install MSYS2, open a MINGW64 shell, then:
-pacman -S --needed base-devel make zip unzip mingw-w64-x86_64-toolchain
+1. **Install MSYS2** and open a **MINGW64** shell, then:
 
-# 2) Set environment vars (PowerShell, one-time)
-setx RACK_SDK "C:\dev\Rack-SDK"
-setx RACK_USER_DIR "C:\Users\YOURNAME\AppData\Local\Rack2"
-setx RACK_EXE "C:\Program Files\VCV\Rack2Free\Rack.exe"
+   ```bash
+   pacman -S --needed base-devel make zip unzip mingw-w64-x86_64-toolchain
+   ```
 
-# 3) Clone and build (in MSYS2 MINGW64 shell)
-git clone https://github.com/HugginsIndustries/vcv-rack-modules.git
-cd vcv-rack-modules
-make -j"$(nproc)"
-make install RACK_USER_DIR="$RACK_USER_DIR"
+2. **One-time environment** (run in **PowerShell**):
 
-# 4) Run Rack
-"$RACK_EXE"
-~~~
+   ```powershell
+   setx RACK_SDK      "C:\dev\Rack-SDK"
+   setx RACK_USER_DIR "C:\Users\YOURNAME\AppData\Local\Rack2"
+   setx RACK_EXE      "C:\Program Files\VCV\Rack2Free\Rack.exe"
+   ```
 
-VS Code users: open the folder and hit **Ctrl+Shift+B**. The default task is **Clean → Build & Install**.
+3. **Clone and build** (in an **MSYS2 MINGW64** shell):
+
+   ```bash
+   git clone https://github.com/HugginsIndustries/FUNmodules.git
+   cd FUNmodules
+   make -j"$(nproc)"
+   make install RACK_USER_DIR="$RACK_USER_DIR"
+   ```
+
+4. **Run Rack**:
+
+   ```bash
+   "$RACK_EXE"
+   ```
+
+Windsurf/VS Code users: **Ctrl+Shift+B** runs the default task **Clean → Build & Install**.
+All tasks also work headlessly in the integrated terminal, so assistant tools can trigger them too.
 
 ---
 
 ## Prerequisites
 
-- **VCV Rack 2 SDK** (download and unzip somewhere like `C:\dev\Rack-SDK`)
-- **MSYS2** with MINGW64 environment (C/C++ toolchain)
-  ~~~bash
+* **VCV Rack 2 SDK** (unzip to something like `C:\dev\Rack-SDK`)
+
+* **MSYS2** with **MINGW64** toolchain
+
+  ```bash
   pacman -S --needed base-devel make zip unzip mingw-w64-x86_64-toolchain
-  ~~~
-- **Git** (included in MSYS2; you can use VS Code’s Git too)
-- (Optional) **VS Code** with:
-  - C/C++ (ms-vscode.cpptools)
-  - Makefile Tools (ms-vscode.makefile-tools)
-  - GitLens (eamodio.gitlens)
-  - DotENV (mikestead.dotenv)
+  ```
+
+* **Git** (MSYS2 includes one)
+
+* **Windsurf / VS Code** (recommended)
+
+### Recommended editor extensions
+
+The repo suggests these in `.vscode/extensions.json`:
+
+* **clangd** – primary C/C++ IntelliSense
+* **Makefile Tools** – parses `Makefile` and wires IntelliSense
+* **GitLens** – better blame/history
+* **DotENV** – highlights `.env` files
+* *(optional)* **GitHub Pull Requests** – open/preview PRs in-editor
 
 ---
 
-## Environment variables
+## Environment
 
-The build and VS Code tasks read these variables:
+The build expects:
 
-- `RACK_SDK` – path to the Rack SDK (e.g., `C:\dev\Rack-SDK`)
-- `RACK_USER_DIR` – Rack’s user directory (e.g., `C:\Users\YOURNAME\AppData\Local\Rack2`)
-- `RACK_EXE` – Rack executable (e.g., `C:\Program Files\VCV\Rack2Free\Rack.exe`)
+* `RACK_SDK` – path to Rack SDK (e.g. `C:\dev\Rack-SDK`)
+* `RACK_USER_DIR` – Rack user dir (e.g. `C:\Users\YOU\AppData\Local\Rack2`)
+* `RACK_EXE` – Rack executable (e.g. `C:\Program Files\VCV\Rack2Free\Rack.exe`)
 
-### Option A: Set system-wide (PowerShell, one-time)
-
-~~~powershell
-setx RACK_SDK "C:\dev\Rack-SDK"
-setx RACK_USER_DIR "C:\Users\YOURNAME\AppData\Local\Rack2"
-setx RACK_EXE "C:\Program Files\VCV\Rack2Free\Rack.exe"
-~~~
-
-Restart VS Code afterwards so it picks up the new environment.
-
-### Option B: Set in MSYS2 shell profile
-
-~~~bash
-# ~/.bashrc (MSYS2)
-export RACK_SDK=/c/dev/Rack-SDK
-export RACK_USER_DIR=/c/Users/YOURNAME/AppData/Local/Rack2
-export RACK_EXE="/c/Program Files/VCV/Rack2Free/Rack.exe"
-~~~
-
-### `.env.example`
-
-The repo includes an example for documentation:
-
-RACK_SDK=/c/dev/Rack-SDK
-RACK_USER_DIR=/c/Users/YOURNAME/AppData/Local/Rack2
-RACK_EXE=/c/Program Files/VCV/Rack2Free/Rack.exe
-
-Create your own `.env` if you like—but it’s **ignored** by Git.
+> On Windows, we also configure the terminal to use **MSYS2 MINGW64** so `make`, `gcc`, and friends are on `PATH`.
 
 ---
 
 ## Building & Installing
 
-### MSYS2 (command line)
+From an **MSYS2 MINGW64** shell in the repo root:
 
-~~~bash
+```bash
 make -j"$(nproc)"
 make install RACK_USER_DIR="$RACK_USER_DIR"
-~~~
+```
 
-Artifacts go to `build/`. The installed plugin lands in `$RACK_USER_DIR/plugins`.
-
-### VS Code tasks (recommended)
-
-- **Clean → Build & Install** (default build task)
-- **Build → Install → Run** (also launches Rack)
-- **Generate module.cpp from SVG** (calls `helper.py`)
-
-All tasks are defined in `.vscode/tasks.json` and are **path-agnostic** (they use env vars).
+The library (`plugin.dll`) lands in `dist/`, and installing copies it to your Rack user plugins dir.
 
 ---
 
-## Running Rack
+## Tasks (editor & terminal)
 
-- MSYS2 shell:
-  ~~~bash
-  "$RACK_EXE"
-  ~~~
-- VS Code task: **Run VCV Rack**
+These tasks are available both via **Terminal** and **Ctrl+Shift+B**:
+
+| Task (editor label) | Terminal equivalent                           | Notes                                      |
+| ------------------- | --------------------------------------------- | ------------------------------------------ |
+| **Build**           | `make -j"$(nproc)"`                           | Compiles the plugin                        |
+| **Install**         | `make install RACK_USER_DIR="$RACK_USER_DIR"` | Copies into your Rack user dir             |
+| **Clean**           | `make clean`                                  | Removes build artifacts                    |
+| **Build & Install** | `make -j"$(nproc)" && make install …`         | Default build task                         |
+| **Core tests**      | `make core_tests`                             | Prints `All core tests passed.` on success |
+| **Quick**           | `make quick`                                  | Fast incremental rebuild (where supported) |
+
+> You can run any of the above directly in the integrated terminal if you prefer (or if an assistant tool needs to).
+
+---
+
+## Running tests
+
+```bash
+make core_tests
+# Expect: "All core tests passed."
+```
+
+Unit tests live under `tests/` and core test hooks reside in `src/core/*`.
+
+---
+
+## Branch & PR workflow
+
+1. Branch from `main`:
+
+   ```bash
+   git checkout -b bug/quant-fix
+   ```
+
+2. Make small, reviewable commits.
+
+3. Push and open a PR. Include a brief summary and a bullet list of key changes and verification steps.
+
+4. **Recommended merge strategy**: **Squash & merge** (keeps main history tidy; PR number links back to discussion).
+
+5. Tag releases from `main` (e.g. `v2.0.1`) after merging.
 
 ---
 
 ## Coding guidelines
 
-- **C++17** (use `<algorithm>`, `<array>`, `<optional>`, etc.).
-- Stay modular; avoid global state in DSP paths.
-- Keep parameters labeled via `configParam()` / `configInput()` / `configOutput()` for hover hints.
-- Avoid hard-coded absolute paths—use env vars or Rack API helpers.
-- Commit messages: short, imperative: PolySlewOffset16: normalize +1 shape; strengthen -1 log curve
+* C++17 (or repo default), no new heavy deps.
+* Keep warnings clean; prefer small, isolated changes.
+* Tests for tricky logic (hysteresis, rounding, masks).
+* Maintain style and file organization already in the project.
 
 ---
 
-## Git workflow
+## Getting help
 
-- **Small, focused commits**; prefer `git add -p` to stage meaningful hunks.
-- **Branching**:
-- `main` = stable
-- feature branches: `feat/<name>`; fixes: `fix/<name>`
-- **Pull Requests**:
-- Describe the change and how to test it.
-- Include screenshots/gifs for UI changes when possible.
+If something doesn’t build:
 
----
+* Confirm you are in **MSYS2 MINGW64** (`uname -s` shows `MINGW64_NT-...`).
+* Verify `RACK_SDK`, `RACK_USER_DIR`, and `RACK_EXE` are set correctly.
+* Try a clean rebuild: `make clean && make -j"$(nproc)"`.
+* Open an issue with the failing task output and your environment details.
 
-## Versioning & Releases
-
-1. Bump `version` in `plugin.json` to `2.x.y`.
-2. Commit: `git commit -m "Bump to 2.x.y"`.
-3. Tag: `git tag v2.x.y`.
-4. Push: `git push && git push --tags`.
-5. Create a GitHub Release and attach the ZIP from `make dist` or the CI artifact.
-
----
-
-## Continuous Integration (GitHub Actions)
-
-- Workflow lives at `.github/workflows/build.yml`.
-- It builds on Windows using MSYS2 and uploads the `dist/*.zip`.
-- Configure repo variable `RACK_SDK_URL`:
-- GitHub → **Settings → Secrets and variables → Actions → Variables**
-- Name: `RACK_SDK_URL`
-- Value: Windows Rack SDK download URL for your target SDK version.
-
-To run on demand: **Actions → build → Run workflow**.
-
----
-
-## Troubleshooting
-
-- **“make: *** No rule to make target …”**  
-Check `RACK_SDK` is set and points to a valid SDK folder. Reopen VS Code after changing env vars.
-
-- **Weird compile errors / IntelliSense red squiggles**  
-Run **“Clean → Build & Install”** to force a full rebuild. Ensure Makefile Tools is active (status bar shows your makefile).
-
-- **Rack can’t find the plugin**  
-Confirm `plugin.json.version` starts with `2.` and you installed to the correct `RACK_USER_DIR`. Restart Rack after installing.
-
-- **LF/CRLF churn**  
-The repo normalizes line endings via `.gitattributes`. If you changed this file, run:
-~~~bash
-git add --renormalize .
-git commit -m "Normalize line endings"
-~~~
-
----
-
-## How to contribute
-
-1. Fork the repo (or create a feature branch if you’re a collaborator).
-2. Make changes with small, reviewable commits.
-3. Build & test locally (try a few patches in Rack).
-4. Open a PR with a clear description, test steps, and screenshots if UI changed.
-
-Thanks for helping make weird sounds weirder, faster, and with fewer segfaults.
+Thanks for helping make weird sounds weirder. 🎛️✨
