@@ -25,3 +25,20 @@ DISTRIBUTABLES += $(wildcard presets)
 
 # Include the Rack plugin Makefile framework
 include $(RACK_DIR)/plugin.mk
+
+# ── Convenience targets usable from any terminal (and by Cascade) ─────────────
+
+.PHONY: quick core_tests
+
+# Parallel build (defers to the plugin’s default build)
+NPROC ?= $(shell nproc 2>/dev/null || echo 4)
+quick:
+	@$(MAKE) -j$(NPROC)
+
+# Headless unit tests (same compilation line you use in the VS Code task)
+build/core_tests: src/core/Strum.cpp src/core/PolyQuantaCore.cpp src/core/ScaleDefs.cpp tests/main.cpp
+	@mkdir -p build
+	@g++ -std=c++17 -O2 -Wall -DUNIT_TESTS $^ -Isrc -o $@
+
+core_tests: build/core_tests
+	@./build/core_tests

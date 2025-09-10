@@ -26,7 +26,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Docs
 - (placeholder)
 
-## [v2.0.0] - 2025-09-08
+
+## [v2.0.1] — 2025-09-09 ([diff][v2.0.1-diff])
+### Added
+- Headless core tests for quantizer stability:
+  - `PeakHold_NoChatter`
+  - `DirSnap_NoSkip_AfterFlip`
+  - `DirSnap_VeryLowFreq_PeakHold`
+- Directional Snap internal state for robust direction detection (`lastFs[]`, `lastDir[]`).
+
+### Changed
+- Direction hysteresis for Directional Snap widened to `Hd = max(0.75·Hs, 0.02 steps)`.
+- Directional target selection (Directional Snap only) now uses `nextAllowedStep(latched, ±1)` instead of nearest-to-`fs`.  
+  *No UI/param changes; Nearest/Up/Down paths unchanged; negligible CPU impact.*
+
+### Fixed
+- **Scale leakage eliminated**: root-relative mask enforcement (honors `customFollowsRoot`) prevents chromatic notes when a scale is active.
+- **Boundary flicker removed** under slow LFO: center-anchored Schmitt hysteresis around the latched step stabilizes edges.
+- Directional Snap crest chatter substantially reduced; a rare <~0.1 Hz “peak jump” may still appear (tracked in a follow-up issue).
+
+### Removed
+- _None._
+
+### Deprecated
+- _None._
+
+### Security
+- _None._
+
+### Docs
+- Inline comments clarify the **candidate → target → latch** flow and mask semantics in `PolyQuanta.cpp` / `PolyQuantaCore.cpp`.
+
+
+## [v2.0.0] — 2025-09-08
 ### Added
 - Glide normalization master enable with modes: Volts-linear, Cent-linear (1 V/oct), Step-safe (EDO/TET period).
 - Signal chain position switch (Pre quantize → Slew vs Post Slew → Quantize) for pitch stability during long glides.
@@ -47,10 +79,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Legacy implicit semitone glide key (`pitchSafe`) retained only for JSON backward compatibility (no longer written).
 
 ### Security
-- No security-related changes in this release.
+- _None._
 
 ### Docs
 - Introduced this CHANGELOG following Keep a Changelog format. 
 
-[Unreleased]: https://github.com/HugginsIndustries/FUNmodules/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/HugginsIndustries/FUNmodules/compare/v2.0.1...HEAD
+[v2.0.1]:     https://github.com/HugginsIndustries/FUNmodules/releases/tag/v2.0.1
+[v2.0.1-diff]:https://github.com/HugginsIndustries/FUNmodules/compare/v2.0.0...v2.0.1
 [v2.0.0]:     https://github.com/HugginsIndustries/FUNmodules/releases/tag/v2.0.0
