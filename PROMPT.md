@@ -61,7 +61,7 @@ Respect these invariants:
 - Root-relative scale masks must remain correct (no chromatic leakage)
 - Center-anchored Schmitt hysteresis for latch stability
 - Directional Snap = one allowed degree from latched step (directional gating via modest hysteresis)
-- Keep code style; add includes only when needed; no mass reformat; preserve indentation/line endings; avoid whitespace churn
+- Keep code style; keep existing comments; add includes only when needed; no mass reformat; preserve indentation/line endings; avoid whitespace churn
 
 Plan of attack:
 1. Identify exact locations to touch (file + brief anchor descriptions)  
@@ -87,6 +87,7 @@ Proceed only after I reply exactly: APPROVE PHASE 2
 Assume workspace root is the FUNmodules repo (contains Makefile and plugin.json).  
 Use POSIX repo-rooted paths (e.g., src/PolyQuanta.cpp) in diffs and file edits.  
 No file creates/renames/moves unless I explicitly ask.
+Add detailed comments explaining added code, especially non-obvious algorithmic changes.
 
 1) Unified diffs (repo-rooted), fenced exactly as:
 
