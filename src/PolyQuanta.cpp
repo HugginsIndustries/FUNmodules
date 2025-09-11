@@ -390,6 +390,14 @@ struct PolyQuanta : Module {
     int    lastDir[16] = {0};  // -1=down, 0=hold, +1=up
     int  latchedStep[16];
     bool latchedInit[16];
+
+    // ────────────────────────────────────────────────────────────────
+    // NEW: Per-channel pre-range transforms (applied BEFORE global
+    // Range Clip/Scale). These let you pick an overall window per voice
+    // without needing panel space: y := y * preScale[ch] + preOffset[ch]
+    float preScale[16]  = {0};  // [0..1], default 1.0
+    float preOffset[16] = {0};  // [-10..+10] V, default 0.0
+
     // Track last-applied quantizer config to know when to invalidate latches
     int prevRootNote = -999;
     int prevScaleIndex = -999;
@@ -492,6 +500,12 @@ struct PolyQuanta : Module {
     // Global rise/fall curve: -1 = log-ish, 0 = linear, +1 = expo-ish
     configParam<hi::ui::ShapeQuantity>(RISE_SHAPE_PARAM, -1.f, 1.f, 0.f, "Rise shape");
     configParam<hi::ui::ShapeQuantity>(FALL_SHAPE_PARAM, -1.f, 1.f, 0.f, "Fall shape");
+
+    // Init new per-channel transform defaults (no-op by default)
+    for (int i = 0; i < 16; ++i) {
+        preScale[i] = 1.f; preOffset[i] = 0.f;
+    }
+
     // Global controls
     struct GlobalSlewDualQuantity : hi::ui::ExpTimeQuantity {
         std::string getDisplayValueString() override {
@@ -791,6 +805,18 @@ struct PolyQuanta : Module {
         json_object_set_new(rootJ, "slewDisabledMask", json_integer(slewDisabledMask));
     }
     // (rootNote/scaleIndex now serialized via CoreState above)
+    // ────────────────────────────────────────────────────────────────
+    // NEW: Persist per-channel pre-range transforms
+    {
+        json_t* a = json_array();
+        for (int i = 0; i < 16; ++i) json_array_append_new(a, json_real(preScale[i]));
+        json_object_set_new(rootJ, "preScale", a);
+    }
+    {
+        json_t* a = json_array();
+        for (int i = 0; i < 16; ++i) json_array_append_new(a, json_real(preOffset[i]));
+        json_object_set_new(rootJ, "preOffset", a);
+    }
     // Polyphony transition fade settings
     json_object_set_new(rootJ, "polyFadeSec", json_real(polyFadeSec));
     // New: persist quantizer position (0=Pre legacy, 1=Post default)
@@ -920,6 +946,23 @@ struct PolyQuanta : Module {
             slewEnabled[i] = !(slewDisabledMask & (1 << i));
         }
     }
+    
+    // ────────────────────────────────────────────────────────────────
+    // NEW: Restore per-channel pre-range transforms (defaults already
+    // set in ctor so missing keys are fine for old patches)
+    if (auto* arr = json_object_get(rootJ, "preScale")) {
+        if (json_is_array(arr)) {
+            size_t n = json_array_size(arr);
+            for (size_t i = 0; i < n && i < 16; ++i) preScale[i] = (float)json_number_value(json_array_get(arr, i));
+        }
+    }
+    if (auto* arr = json_object_get(rootJ, "preOffset")) {
+        if (json_is_array(arr)) {
+            size_t n = json_array_size(arr);
+            for (size_t i = 0; i < n && i < 16; ++i) preOffset[i] = (float)json_number_value(json_array_get(arr, i));
+        }
+    }
+
     // (rootNote/scaleIndex restored via CoreState above)
     if (auto* j = json_object_get(rootJ, "polyFadeSec")) polyFadeSec = (float)json_number_value(j);
     // New key (quantizerPos). Back-compat: if absent (old patches) force legacy Pre to preserve prior sound.
@@ -957,6 +1000,8 @@ struct PolyQuanta : Module {
             strumDelayAssigned[i] = 0.f;
             strumDelayLeft[i] = 0.f;
             latchedInit[i] = false;
+            preScale[i] = 1.f;
+            preOffset[i] = 0.f;
             latchedStep[i] = 0;
             prevYRel[i] = 0.f;
         }
@@ -1277,6 +1322,11 @@ struct PolyQuanta : Module {
             float target = in + offTot;
             targetArr[c] = target;
 
+            // ────────────────────────────────────────────────────────
+            // NEW: Apply per-channel pre-range transform (no clamp here;
+            // global Range will handle Clip/Scale as selected).
+            targetArr[c] = targetArr[c] * preScale[c] + preOffset[c];
+
             float yPrev = lastOut[c];
             float err   = target - yPrev;
             int   sign  = (err > 0.f) - (err < 0.f);
@@ -1550,6 +1600,12 @@ struct PolyQuanta : Module {
                         offTot = std::round(offTot * 1200.f) / 1200.f;
                     }
                     float target = in + offTot;
+
+                    // ────────────────────────────────────────────────
+                    // NEW: Apply per-channel pre-range transform during
+                    // channel-width fade reinit so there’s no jump.
+                    target = target * preScale[c] + preOffset[c];
+
                     // Initialize slews and outputs to targets so fade up is from current value
                     lastOut[c] = target;
                     slews[c].reset();
@@ -1872,6 +1928,25 @@ struct PolyQuantaWidget : ModuleWidget {
                 if (isOffset && chIndex >= 0) {
                     menu->addChild(new MenuSeparator);
                     menu->addChild(rack::createMenuLabel("Controls"));
+
+                    // ────────────────────────────────────────────────
+                    // NEW: Per-channel menu sliders (bind directly to
+                    // module floats via a tiny Quantity).
+                    {
+                        auto* q = new FloatMenuQuantity(&m->preScale[chIndex],
+                            -1.0f, 1.0f, 1.0f, "Scale (pre-range)", " ×", 2);
+                        auto* s = new rack::ui::Slider();
+                        s->quantity = q; s->box.size.x = 220.f;
+                        menu->addChild(s);
+                    }
+                    {
+                        auto* q = new FloatMenuQuantity(&m->preOffset[chIndex],
+                            -10.0f, 10.0f, 0.0f, "Offset (pre-range)", " V", 2);
+                        auto* s = new rack::ui::Slider();
+                        s->quantity = q; s->box.size.x = 220.f;
+                        menu->addChild(s);
+                    }
+
                     // Per-channel offset knob snap mode
                     menu->addChild(rack::createSubmenuItem("Offset knob snap mode", "", [m, chIndex](rack::ui::Menu* sm){
                         sm->addChild(rack::createCheckMenuItem("Voltages (+-10 V)", "", [m,chIndex]{ return m->snapOffsetModeCh[chIndex]==0; }, [m,chIndex]{ m->snapOffsetModeCh[chIndex]=0; }));
@@ -1934,6 +2009,7 @@ struct PolyQuantaWidget : ModuleWidget {
             addParam(createParamCentered<CKSS>(mm2px(Vec(cxMM - dxColGlobalsMM - dxToggleMM, yGlobalMM)), module, PolyQuanta::GLOBAL_SLEW_MODE_PARAM));
             addParam(createParamCentered<CKSS>(mm2px(Vec(cxMM + dxColGlobalsMM + dxToggleMM, yGlobalMM)), module, PolyQuanta::GLOBAL_OFFSET_MODE_PARAM));
         }
+
         // Small per-channel cents display next to each LED (relative to 0 V = middle C)
         struct CentsDisplay : TransparentWidget {
             PolyQuanta* mod = nullptr; int ch = 0; std::shared_ptr<Font> font;
