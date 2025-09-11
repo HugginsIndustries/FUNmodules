@@ -405,6 +405,10 @@ struct PolyQuanta : Module {
     // Per-channel post-quantizer octave shift (-5..+5 octaves; 0 default)
     int postOctShift[16] = {0};
 
+    // Per-channel slew enable/disable (default enabled)
+    bool slewEnabled[16] = {true, true, true, true, true, true, true, true,
+                            true, true, true, true, true, true, true, true};
+
     // Global quantization settings
     int rootNote = 0;      // index 0..(edo-1). For 12‑EDO: 0=C, 1=C#, ..., 11=B
     int scaleIndex = 0;    // index into preset scales table for current EDO (ignored if useCustomScale)
@@ -778,6 +782,14 @@ struct PolyQuanta : Module {
         hi::util::jsonh::writeBool(rootJ, "lockFallShape", lockFallShape);
         hi::util::jsonh::writeBool(rootJ, "allowRiseShape", allowRiseShape);
         hi::util::jsonh::writeBool(rootJ, "allowFallShape", allowFallShape);
+    // Per-channel slew enable state (compact bitmask: bit=1 means disabled)
+    {
+        uint16_t slewDisabledMask = 0;
+        for (int i = 0; i < 16; ++i) {
+            if (!slewEnabled[i]) slewDisabledMask |= (1 << i);
+        }
+        json_object_set_new(rootJ, "slewDisabledMask", json_integer(slewDisabledMask));
+    }
     // (rootNote/scaleIndex now serialized via CoreState above)
     // Polyphony transition fade settings
     json_object_set_new(rootJ, "polyFadeSec", json_real(polyFadeSec));
@@ -897,6 +909,17 @@ struct PolyQuanta : Module {
         lockFallShape = hi::util::jsonh::readBool(rootJ, "lockFallShape", lockFallShape);
         allowRiseShape = hi::util::jsonh::readBool(rootJ, "allowRiseShape", allowRiseShape);
         allowFallShape = hi::util::jsonh::readBool(rootJ, "allowFallShape", allowFallShape);
+    // Per-channel slew enable state (backward compatible: missing key defaults to all enabled)
+    {
+        uint16_t slewDisabledMask = 0;
+        if (auto* j = json_object_get(rootJ, "slewDisabledMask")) {
+            slewDisabledMask = (uint16_t)json_integer_value(j);
+        }
+        // Restore per-channel enable state from bitmask (bit=1 means disabled)
+        for (int i = 0; i < 16; ++i) {
+            slewEnabled[i] = !(slewDisabledMask & (1 << i));
+        }
+    }
     // (rootNote/scaleIndex restored via CoreState above)
     if (auto* j = json_object_get(rootJ, "polyFadeSec")) polyFadeSec = (float)json_number_value(j);
     // New key (quantizerPos). Back-compat: if absent (old patches) force legacy Pre to preserve prior sound.
@@ -1297,7 +1320,9 @@ struct PolyQuanta : Module {
                 // No time-stretch addition; start-delay handled below
                 sec += gsec;
             }
-            bool noSlew = (sec <= hconst::MIN_SEC);
+            // Gate slew processing: check both time threshold and per-channel enable
+            bool chSlewDisabled = !slewEnabled[c];
+            bool noSlew = (sec <= hconst::MIN_SEC) || chSlewDisabled;
 
             if (modeChanged || sign != stepSign[c] || aerrN > stepNorm[c]) {
                 stepSign[c] = sign;
@@ -1787,6 +1812,17 @@ struct PolyQuantaWidget : ModuleWidget {
                     menu->addChild(rack::createMenuLabel("Dual-mode: Global Slew"));
                     menu->addChild(rack::createBoolMenuItem("Attenuverter always on", "", [m]{ return m->attenuverterAlwaysOn; }, [m](bool v){ m->attenuverterAlwaysOn = v; }));
                     menu->addChild(rack::createBoolMenuItem("Global slew always on", "", [m]{ return m->slewAddAlwaysOn; }, [m](bool v){ m->slewAddAlwaysOn = v; }));
+                    // Batch slew enable/disable actions
+                    menu->addChild(new MenuSeparator);
+                    menu->addChild(rack::createSubmenuItem("Batch: Slew enable/disable", "", [m](rack::ui::Menu* sm){
+                        sm->addChild(rack::createMenuItem("All ON", "", [m]{ for(int i=0;i<16;++i) m->slewEnabled[i] = true; }));
+                        sm->addChild(rack::createMenuItem("Even ON", "", [m]{ for(int i=0;i<16;i+=2) m->slewEnabled[i] = true; }));
+                        sm->addChild(rack::createMenuItem("Odd ON", "", [m]{ for(int i=1;i<16;i+=2) m->slewEnabled[i] = true; }));
+                        sm->addChild(new MenuSeparator);
+                        sm->addChild(rack::createMenuItem("All OFF", "", [m]{ for(int i=0;i<16;++i) m->slewEnabled[i] = false; }));
+                        sm->addChild(rack::createMenuItem("Even OFF", "", [m]{ for(int i=0;i<16;i+=2) m->slewEnabled[i] = false; }));
+                        sm->addChild(rack::createMenuItem("Odd OFF", "", [m]{ for(int i=1;i<16;i+=2) m->slewEnabled[i] = false; }));
+                    }));
                 }
                 if (pid == PolyQuanta::GLOBAL_OFFSET_PARAM) {
                     menu->addChild(new MenuSeparator);
@@ -1798,6 +1834,17 @@ struct PolyQuantaWidget : ModuleWidget {
                 for (int i = 0; i < 16; ++i) {
                     if (pid == PolyQuanta::SL_PARAM[i]) { lockPtr = &m->lockSlew[i]; allowPtr = &m->allowSlew[i]; isSlew = true; chIndex = i; break; }
                     if (pid == PolyQuanta::OFF_PARAM[i]) { lockPtr = &m->lockOffset[i]; allowPtr = &m->allowOffset[i]; isOffset = true; chIndex = i; break; }
+                }
+                // Per-channel slew enable toggle for slew knobs
+                if (isSlew && chIndex >= 0) {
+                    menu->addChild(new MenuSeparator);
+                    menu->addChild(rack::createMenuLabel("Slew Processing"));
+                    menu->addChild(rack::createCheckMenuItem(
+                        "Slew processing enabled",
+                        "",
+                        [m, chIndex]{ return m->slewEnabled[chIndex]; },
+                        [m, chIndex]{ m->slewEnabled[chIndex] = !m->slewEnabled[chIndex]; }
+                    ));
                 }
                 if (pid == PolyQuanta::RISE_SHAPE_PARAM) { lockPtr = &m->lockRiseShape; allowPtr = &m->allowRiseShape; isRise = true; }
                 if (pid == PolyQuanta::FALL_SHAPE_PARAM) { lockPtr = &m->lockFallShape; allowPtr = &m->allowFallShape; isFall = true; }

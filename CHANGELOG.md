@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 ### Added
+- **Per-channel slew enable/disable toggles**: Each channel's slew knob context menu now includes "Slew processing enabled" toggle to bypass slew processing for that channel, even when Global slew add > 0 ms.
+- **Batch slew enable/disable actions**: Global Slew knob context menu includes "Batch: Slew enable/disable" submenu with ALL/EVEN/ODD ON/OFF actions for quick channel group management.
 - **`PROMPT.md`**: meta prompt for crafting prompts for the Cascade AI code platform in Windsurf. Includes project context and instructions for consistent prompt crafting. (WIP)
 - **`scripts/win_msys_build.cmd`**: batch script for building the project on Windows using MSYS2/MINGW64.
 - **`scripts/win_msys_core_tests.cmd`**: batch script for running the core unit tests on Windows using MSYS2/MINGW64.
