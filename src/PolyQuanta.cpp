@@ -228,10 +228,10 @@ struct PolyQuanta : Module {
     int clipVppIndex = 0;
     // Pre-quant range enforcement: 0 = Clip (default), 1 = Scale
     int rangeMode = 0;
-    // Per-channel offset quantization mode: 0=None, 1=Semitones (EDO/TET), 2=Cents
-    int  quantizeOffsetModeCh[16] = {0};
-    // Global convenience ("Quantize all offsets" submenu) applies this mode to all channels; kept for backward compat
-    int  quantizeOffsetMode = 0;
+    // Per-channel offset snap mode: 0=Voltage, 1=Semitones (EDO/TET), 2=Cents
+    int  snapOffsetModeCh[16] = {0};
+    // Global convenience ("Batch: Offset knob snap mode" submenu) applies this mode to all channels
+    int  snapOffsetMode = 0;
 
     // Dual-mode globals: per-mode banks and last modes (centralized helper)
     hi::ui::dual::DualBank<float> gSlew;    // a: slew-add raw [0..1], b: attenuverter raw [0..1]
@@ -480,9 +480,9 @@ struct PolyQuanta : Module {
 
         // Per-channel knobs
         for (int i = 0; i < 16; ++i) {
-            // Per‑channel offset: show semitones when quantizeOffsetMode == 1
+            // Per‑channel offset: show semitones when snapOffsetMode == 1
             auto* pq = configParam<OffsetQuantity>(OFF_PARAM[i], -10.f, 10.f, 0.f, string::f("Ch %d offset", i+1), "");
-            pq->quantizeOffsetModePtr = &quantizeOffsetModeCh[i];
+            pq->snapOffsetModePtr = &snapOffsetModeCh[i];
             pq->edoPtr = &edo;
             // Exponential time taper for slew: store [0,1]; tooltip formats ms/s dynamically
             configParam<hi::ui::ExpTimeQuantity>(SL_PARAM[i], 0.f, 1.f, 0.0f, string::f("Ch %d slew (rise & fall)", i+1), "");
@@ -579,7 +579,7 @@ struct PolyQuanta : Module {
     };
     {
         auto* gq = configParam<GlobalOffsetDualQuantity>(GLOBAL_OFFSET_PARAM, -10.f, 10.f, 0.0f, "Global Offset (dual)", "");
-    gq->quantizeOffsetModePtr = &quantizeOffsetMode; // global knob uses batch mode value
+    gq->snapOffsetModePtr = &snapOffsetMode; // global knob uses batch mode value
         gq->edoPtr = &edo;
     }
     struct OffsetModeQuantity : ParamQuantity {
@@ -717,14 +717,14 @@ struct PolyQuanta : Module {
     json_object_set_new(rootJ, "clipVppIndex", json_integer(clipVppIndex));
     json_object_set_new(rootJ, "rangeMode", json_integer(rangeMode));
     // Persist new enum; also write legacy boolean for backward compatibility (true only if semitone mode)
-    json_object_set_new(rootJ, "quantizeOffsetMode", json_integer(quantizeOffsetMode)); // legacy/global
+    json_object_set_new(rootJ, "snapOffsetMode", json_integer(snapOffsetMode)); // legacy/global
     // Per-channel modes
     {
         json_t* arr = json_array();
-        for (int i=0;i<16;++i) json_array_append_new(arr, json_integer(quantizeOffsetModeCh[i]));
-        json_object_set_new(rootJ, "quantizeOffsetModeCh", arr);
+        for (int i=0;i<16;++i) json_array_append_new(arr, json_integer(snapOffsetModeCh[i]));
+        json_object_set_new(rootJ, "snapOffsetModeCh", arr);
     }
-    hi::util::jsonh::writeBool(rootJ, "quantizeOffsets", quantizeOffsetMode == 1);
+    hi::util::jsonh::writeBool(rootJ, "snapOffsets", snapOffsetMode == 1);
     // Dual-mode globals
     // Persist using legacy keys for backward compatibility
     hi::util::jsonh::writeBool(rootJ, "globalSlewMode", gSlew.mode);
@@ -820,28 +820,28 @@ struct PolyQuanta : Module {
     if (auto* j = json_object_get(rootJ, "clipVppIndex")) clipVppIndex = (int)json_integer_value(j);
     if (auto* j = json_object_get(rootJ, "rangeMode")) rangeMode = (int)json_integer_value(j);
     // Read new enum; if absent fall back to legacy boolean
-    if (auto* jm = json_object_get(rootJ, "quantizeOffsetMode")) {
-        if (json_is_integer(jm)) quantizeOffsetMode = (int)json_integer_value(jm);
+    if (auto* jm = json_object_get(rootJ, "snapOffsetMode")) {
+        if (json_is_integer(jm)) snapOffsetMode = (int)json_integer_value(jm);
     }
     // Per-channel modes (new). If missing, seed from global/legacy.
     bool seededFromLegacy = false;
-    if (auto* arr = json_object_get(rootJ, "quantizeOffsetModeCh")) {
+    if (auto* arr = json_object_get(rootJ, "snapOffsetModeCh")) {
         if (json_is_array(arr) && json_array_size(arr) == 16) {
             for (int i=0;i<16;++i) {
                 auto* v = json_array_get(arr, i);
-                if (v && json_is_integer(v)) quantizeOffsetModeCh[i] = (int)json_integer_value(v);
+                if (v && json_is_integer(v)) snapOffsetModeCh[i] = (int)json_integer_value(v);
             }
             seededFromLegacy = true;
         }
     }
     if (!seededFromLegacy) {
         // Legacy paths: old enum or bool
-        int legacyMode = quantizeOffsetMode;
+        int legacyMode = snapOffsetMode;
         if (legacyMode == 0) {
-            bool legacyBool = hi::util::jsonh::readBool(rootJ, "quantizeOffsets", false);
+            bool legacyBool = hi::util::jsonh::readBool(rootJ, "snapOffsets", false);
             if (legacyBool) legacyMode = 1;
         }
-        for (int i=0;i<16;++i) quantizeOffsetModeCh[i] = legacyMode;
+        for (int i=0;i<16;++i) snapOffsetModeCh[i] = legacyMode;
     }
     // Dual-mode globals (migrated to shared DualBank)
     gSlew.mode   = hi::util::jsonh::readBool(rootJ, "globalSlewMode", gSlew.mode);
@@ -1264,7 +1264,7 @@ struct PolyQuanta : Module {
             if (useAttv) in *= gGain;
             float offCh = params[OFF_PARAM[c]].getValue();
             float offTot = offCh + globalOffset;
-            int qm = quantizeOffsetModeCh[c];
+            int qm = snapOffsetModeCh[c];
             if (qm == 1) { // Semitone (EDO or TET) quantization
                 int Nsteps = (tuningMode == 0 ? ((edo <= 0) ? 12 : edo) : (tetSteps > 0 ? tetSteps : 9));
                 float period = (tuningMode == 0) ? 1.f : ((tetPeriodOct > 0.f) ? tetPeriodOct : std::log2(3.f/2.f));
@@ -1540,7 +1540,7 @@ struct PolyQuanta : Module {
                     }
                     float offCh = params[OFF_PARAM[c]].getValue();
                     float offTot = offCh + (gOffset.mode ? gOffset.a : params[GLOBAL_OFFSET_PARAM].getValue());
-                    int qm = quantizeOffsetModeCh[c];
+                    int qm = snapOffsetModeCh[c];
                     if (qm == 1) {
                         int Nsteps = (tuningMode == 0 ? ((edo <= 0) ? 12 : edo) : (tetSteps > 0 ? tetSteps : 9));
                         float period = (tuningMode == 0) ? 1.f : ((tetPeriodOct > 0.f) ? tetPeriodOct : std::log2(3.f/2.f));
@@ -1761,37 +1761,37 @@ struct PolyQuantaWidget : ModuleWidget {
     const float pxPerMM = RACK_GRID_WIDTH / 5.08f;
     const float cxMM    = (box.size.x * 0.5f) / pxPerMM;
     // Global labels/knobs rows
-    const float yShapeMM   = 17.5f;   // Rise/Fall shape row (under labels)
-    const float yGlobalMM  = 27.8f;   // Global Slew/Offset row
+    const float yShapeMM   = 17.5f;                                             // Rise/Fall shape row (under labels)
+    const float yGlobalMM  = 27.8f;                                             // Global Slew/Offset row
     // Horizontal offsets (separated so Global Slew/Offset can be adjusted independently of Rise/Fall)
-    const float dxColShapesMM  = 17.5f;   // Rise/Fall (shape) column offset from center
-    const float dxColGlobalsMM = 19.5f;   // Global Slew/Offset column offset from center
-    const float dxToggleMM = 7.0f;    // Inset for the tiny CKSS toggles near global knobs
+    const float dxColShapesMM  = 17.5f;                                         // Rise/Fall (shape) column offset from center
+    const float dxColGlobalsMM = 19.5f;                                         // Global Slew/Offset column offset from center
+    const float dxToggleMM = 7.0f;                                              // Inset for the tiny CKSS toggles near global knobs
     // 8x2 channel grid
-    const float yRow0MM    = 41.308f; // First row Y
-    const float rowDyMM    = 8.252f;  // Row step
-    const float ledDxMM    = 1.2f;    // LED offset from center
-    const float knobDx1MM  = 17.0f;    // Inner knob offset from LED
-    const float knobDx2MM  = 25.0f;   // Outer knob offset from LED
+    const float yRow0MM    = 41.308f;                                           // First row Y
+    const float rowDyMM    = 8.252f;                                            // Row step
+    const float ledDxMM    = 1.2f;                                              // LED offset from center
+    const float knobDx1MM  = 19.0f;                                             // Inner knob offset from LED
+    const float knobDx2MM  = 26.0f;                                             // Outer knob offset from LED
     // Per-channel cents readouts (text) — offsets from each row center
     // - Horizontal offsets are measured from the panel center (cxMM).
     //   They include the LED inset (ledDxMM) plus additional spacing so text
     //   clears the LED graphic. Adjust here to move readouts left/right.
     // - Vertical offset is relative to the row centerline (yRowN). Adjust
     //   to raise/lower the readouts as needed.
-    const float dxCentsLeftMM  = -(ledDxMM + 8.0f); // Left column cents X offset from center
-    const float dxCentsRightMM =  (ledDxMM + 8.0f); // Right column cents X offset from center
-    const float dyCentsMM      =  0.0f;            // Cents text Y offset from row center
+    const float dxCentsLeftMM  = -(ledDxMM + 8.5f);                             // Left column cents X offset from center
+    const float dxCentsRightMM =  (ledDxMM + 8.5f);                             // Right column cents X offset from center
+    const float dyCentsMM      =  0.0f;                                         // Cents text Y offset from row center
     // Bottom I/O and button row
-    const float yInOutMM   = 114.000f; // IN/OUT jacks Y
-    const float yTrigMM    = 122.000f; // Randomize trigger jack Y
-    const float yBtnMM     = 106.000f; // Randomize button Y
-    const float dxPortsMM  = 22.000f;  // Horizontal offset from center to IN/OUT jacks
+    const float yInOutMM   = 114.000f;                                          // IN/OUT jacks Y
+    const float yTrigMM    = 122.000f;                                          // Randomize trigger jack Y
+    const float yBtnMM     = 106.000f;                                          // Randomize button Y
+    const float dxPortsMM  = 24.000f;                                           // Horizontal offset from center to IN/OUT jacks
     // Auto-randomize new control placements (cluster around existing Randomize button)
-    const float yRndKnobMM = 114.0f;    // Row for Time & Amount knobs
-    const float dxRndKnobMM = 10.0f;   // Horizontal offset from center to each knob
-    const float yRndSwMM   = 122.0f;   // Switch row aligned with button
-    const float dxRndSwMM  = 10.0f;    // Horizontal offset for switches (Auto left, Sync right)
+    const float yRndKnobMM = 114.0f;                                            // Row for Time & Amount knobs
+    const float dxRndKnobMM = 10.0f;                                            // Horizontal offset from center to each knob
+    const float yRndSwMM   = 122.0f;                                            // Switch row aligned with button
+    const float dxRndSwMM  = 10.0f;                                             // Horizontal offset for switches (Auto left, Sync right)
 
     // Custom knob with per-control randomize lock in context menu
         struct LockableTrimpot : Trimpot {
@@ -1806,8 +1806,13 @@ struct PolyQuantaWidget : ModuleWidget {
                 bool* allowPtr = nullptr;
                 bool isSlew = false, isOffset = false, isRise = false, isFall = false;
                 int chIndex = -1; // for per-channel features
-        // Dual-mode always-on toggles on the respective global knobs
+                // Global Slew Knob
                 if (pid == PolyQuanta::GLOBAL_SLEW_PARAM) {
+                    menu->addChild(new MenuSeparator);
+                    menu->addChild(rack::createMenuLabel("Controls"));
+                    menu->addChild(rack::createMenuItem("Set all slews to 0", "", [m]{
+                        for (int i = 0; i < 16; ++i) m->params[PolyQuanta::SL_PARAM[i]].setValue(0.f);
+                    }));
                     menu->addChild(new MenuSeparator);
                     menu->addChild(rack::createMenuLabel("Dual-mode: Global Slew"));
                     menu->addChild(rack::createBoolMenuItem("Attenuverter always on", "", [m]{ return m->attenuverterAlwaysOn; }, [m](bool v){ m->attenuverterAlwaysOn = v; }));
@@ -1816,15 +1821,30 @@ struct PolyQuantaWidget : ModuleWidget {
                     menu->addChild(new MenuSeparator);
                     menu->addChild(rack::createSubmenuItem("Batch: Slew enable/disable", "", [m](rack::ui::Menu* sm){
                         sm->addChild(rack::createMenuItem("All ON", "", [m]{ for(int i=0;i<16;++i) m->slewEnabled[i] = true; }));
-                        sm->addChild(rack::createMenuItem("Even ON", "", [m]{ for(int i=0;i<16;i+=2) m->slewEnabled[i] = true; }));
-                        sm->addChild(rack::createMenuItem("Odd ON", "", [m]{ for(int i=1;i<16;i+=2) m->slewEnabled[i] = true; }));
+                        sm->addChild(rack::createMenuItem("Odd ON", "", [m]{ for(int i=0;i<16;i+=2) m->slewEnabled[i] = true; }));
+                        sm->addChild(rack::createMenuItem("Even ON", "", [m]{ for(int i=1;i<16;i+=2) m->slewEnabled[i] = true; }));
                         sm->addChild(new MenuSeparator);
                         sm->addChild(rack::createMenuItem("All OFF", "", [m]{ for(int i=0;i<16;++i) m->slewEnabled[i] = false; }));
-                        sm->addChild(rack::createMenuItem("Even OFF", "", [m]{ for(int i=0;i<16;i+=2) m->slewEnabled[i] = false; }));
-                        sm->addChild(rack::createMenuItem("Odd OFF", "", [m]{ for(int i=1;i<16;i+=2) m->slewEnabled[i] = false; }));
+                        sm->addChild(rack::createMenuItem("Odd OFF", "", [m]{ for(int i=0;i<16;i+=2) m->slewEnabled[i] = false; }));
+                        sm->addChild(rack::createMenuItem("Even OFF", "", [m]{ for(int i=1;i<16;i+=2) m->slewEnabled[i] = false; }));
                     }));
                 }
+                // Global Offset Knob
                 if (pid == PolyQuanta::GLOBAL_OFFSET_PARAM) {
+                    menu->addChild(new MenuSeparator);
+                    menu->addChild(rack::createMenuLabel("Controls"));
+                    // Batch apply offset quantization mode to all channels
+                    menu->addChild(rack::createSubmenuItem("Batch: Offset knob snap mode", "", [m](rack::ui::Menu* sm){
+                        auto applyAll=[m](int mode){ m->snapOffsetMode = mode; for(int i=0;i<16;++i) m->snapOffsetModeCh[i]=mode; };
+                        sm->addChild(rack::createCheckMenuItem("Voltage (+-10 V)", "", [m]{ return m->snapOffsetMode == 0; }, [applyAll]{ applyAll(0); }));
+                        sm->addChild(rack::createCheckMenuItem("Semitones (EDO/TET)", "", [m]{ return m->snapOffsetMode == 1; }, [applyAll]{ applyAll(1); }));
+                        sm->addChild(rack::createCheckMenuItem("Cents (1/1200 V)", "", [m]{ return m->snapOffsetMode == 2; }, [applyAll]{ applyAll(2); }));
+                    }));
+                    menu->addChild(rack::createMenuItem("Set all offsets to 0", "", [m]{
+                        for (int i = 0; i < 16; ++i) m->params[PolyQuanta::OFF_PARAM[i]].setValue(0.f);
+                    }));
+                    menu->addChild(new MenuSeparator);
+                    menu->addChild(rack::createMenuLabel("Quantization"));
                     menu->addChild(new MenuSeparator);
                     menu->addChild(rack::createMenuLabel("Dual-mode: Global Offset"));
                     menu->addChild(rack::createBoolMenuItem("Global offset always on", "", [m]{ return m->globalOffsetAlwaysOn; }, [m](bool v){ m->globalOffsetAlwaysOn = v; }));
@@ -1851,13 +1871,15 @@ struct PolyQuantaWidget : ModuleWidget {
                 // Per-channel Quantization section for Offset knobs: Octave shift (pre-quant)
                 if (isOffset && chIndex >= 0) {
                     menu->addChild(new MenuSeparator);
-                    menu->addChild(rack::createMenuLabel("Quantization"));
-                    // Per-channel offset quantization mode
-                    menu->addChild(rack::createSubmenuItem("Quantize knob", "", [m, chIndex](rack::ui::Menu* sm){
-                        sm->addChild(rack::createCheckMenuItem("None", "", [m,chIndex]{ return m->quantizeOffsetModeCh[chIndex]==0; }, [m,chIndex]{ m->quantizeOffsetModeCh[chIndex]=0; }));
-                        sm->addChild(rack::createCheckMenuItem("Semitones", "", [m,chIndex]{ return m->quantizeOffsetModeCh[chIndex]==1; }, [m,chIndex]{ m->quantizeOffsetModeCh[chIndex]=1; }));
-                        sm->addChild(rack::createCheckMenuItem("Cents", "", [m,chIndex]{ return m->quantizeOffsetModeCh[chIndex]==2; }, [m,chIndex]{ m->quantizeOffsetModeCh[chIndex]=2; }));
+                    menu->addChild(rack::createMenuLabel("Controls"));
+                    // Per-channel offset knob snap mode
+                    menu->addChild(rack::createSubmenuItem("Offset knob snap mode", "", [m, chIndex](rack::ui::Menu* sm){
+                        sm->addChild(rack::createCheckMenuItem("Voltages (+-10 V)", "", [m,chIndex]{ return m->snapOffsetModeCh[chIndex]==0; }, [m,chIndex]{ m->snapOffsetModeCh[chIndex]=0; }));
+                        sm->addChild(rack::createCheckMenuItem("Semitones (EDO/TET)", "", [m,chIndex]{ return m->snapOffsetModeCh[chIndex]==1; }, [m,chIndex]{ m->snapOffsetModeCh[chIndex]=1; }));
+                        sm->addChild(rack::createCheckMenuItem("Cents (1/1200 V)", "", [m,chIndex]{ return m->snapOffsetModeCh[chIndex]==2; }, [m,chIndex]{ m->snapOffsetModeCh[chIndex]=2; }));
                     }));
+                    menu->addChild(new MenuSeparator);
+                    menu->addChild(rack::createMenuLabel("Quantization"));
                     // Toggle quantization for this channel
                     menu->addChild(rack::createCheckMenuItem(
                         "Quantize to scale",
@@ -1933,10 +1955,12 @@ struct PolyQuantaWidget : ModuleWidget {
                     int activeN = std::max(0, mod->polyTrans.curProcN);
                     if (ch < activeN) {
                         float v = mod->lastOut[ch];
-                        int cents = (int)std::round(v * 1200.f);
-                        // Clamp to practical bounds (±12000 for ±10 V)
-                        if (cents > 12000) cents = 12000; else if (cents < -12000) cents = -12000;
-                        txt = rack::string::f("%+dc", cents);
+                        float cents = v * 1200.f;                      // keep precision
+                        // Round to 2 decimals and clamp to practical bounds (±12000 for ±10 V)
+                        cents = std::round(cents * 100.f) / 100.f;
+                        if (cents > 12000.f) cents = 12000.f;
+                        else if (cents < -12000.f) cents = -12000.f;
+                        txt = rack::string::f("%+.2f¢", cents);        // two decimals, signed
                     }
                 }
                 nvgText(args.vg, box.size.x * 0.5f, box.size.y * 0.5f, txt.c_str(), nullptr);
@@ -2051,20 +2075,7 @@ struct PolyQuantaWidget : ModuleWidget {
             sm->addChild(rack::createCheckMenuItem("Scale", "", [m]{ return m->rangeMode == 1; }, [m]{ m->rangeMode = 1; }));
         }));
     hi::ui::menu::addSection(menu, "Controls");
-        // Batch apply offset quantization mode to all channels
-        menu->addChild(rack::createSubmenuItem("Quantize all offsets", "", [m](rack::ui::Menu* sm){
-            auto applyAll=[m](int mode){ m->quantizeOffsetMode = mode; for(int i=0;i<16;++i) m->quantizeOffsetModeCh[i]=mode; };
-            sm->addChild(rack::createCheckMenuItem("None", "", [m]{ return m->quantizeOffsetMode == 0; }, [applyAll]{ applyAll(0); }));
-            sm->addChild(rack::createCheckMenuItem("Semitones (scale steps)", "", [m]{ return m->quantizeOffsetMode == 1; }, [applyAll]{ applyAll(1); }));
-            sm->addChild(rack::createCheckMenuItem("Cents (1/1200 V)", "", [m]{ return m->quantizeOffsetMode == 2; }, [applyAll]{ applyAll(2); }));
-        }));
         // Quick actions
-        menu->addChild(rack::createMenuItem("Set all slews to 0", "", [m]{
-            for (int i = 0; i < 16; ++i) m->params[PolyQuanta::SL_PARAM[i]].setValue(0.f);
-        }));
-        menu->addChild(rack::createMenuItem("Set all offsets to 0", "", [m]{
-            for (int i = 0; i < 16; ++i) m->params[PolyQuanta::OFF_PARAM[i]].setValue(0.f);
-        }));
     // Export richer panel snapshot SVG (panel artwork + component approximations)
     menu->addChild(rack::createMenuItem("Export layout SVG (user folder)", "", [this]{
             // Delegated to extracted implementation (behavior identical to original inline code).
