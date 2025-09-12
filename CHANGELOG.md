@@ -11,12 +11,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **`PROMPT.md`**: meta prompt for crafting prompts for the Cascade AI code platform in Windsurf. Includes project context and instructions for consistent prompt crafting. (WIP)
 - **`scripts/win_msys_build.cmd`**: batch script for building the project on Windows using MSYS2/MINGW64.
 - **`scripts/win_msys_core_tests.cmd`**: batch script for running the core unit tests on Windows using MSYS2/MINGW64.
+- **Per-channel pre-range scale/offset transforms**: Each channel’s **Offset** knob context menu now includes **“Scale (attenuverter)”** (-10.00…10.00×, default 1.00×) and **“Offset (post-scale)”** (−10…+10 V, default 0.00 V) sliders. These multiply then offset the per-channel signal **before** the global **Range** (Clip/Scale + global range offset) stage and **before** quantization, letting you define octave windows per channel (bass/pads/melody) while keeping the global Range as the sole limiter. Settings persist in patch JSON; existing patches are unchanged by default.
 
 ### Changed
-- _None._
+- **Refactor: rename “quantize” → “snap” for Offset knob modes & improve UI labels**: Offset knob context menu now uses **“Offset knob snap mode”** wording (previously “Quantize knob”) to avoid confusion with the module’s quantizer. Options have clearer labels: **“Voltages (±10 V)”**, **“Semitones (EDO/TET accurate)”**, **“Cents (1/1200 V)”**. Internal symbols updated for consistency; behavior and patch compatibility are unchanged.
 
 ### Fixed
-- _None._
+- **Clocked randomization: multiplication stuck at 1×**: Fixed a bug where ×2/×3… modes behaved like 1× because ratio changes were keyed to the raw index, repeatedly resetting the schedule on knob jitter. Scheduling now compares actual `(divide, multiply)` values and anchors to the measured clock edge, generating interior pulses at `period/mul` as expected. Division behavior unchanged; no patch compatibility impact.
 
 ### Removed
 - **Sync glides across channels** feature: eliminated cross-channel glide synchronization to simplify DSP and reduce complexity. Each channel now handles glides independently (as if sync was always disabled).
@@ -29,7 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None._
 
 ### Docs
-- _None._
+- **README.md**: updated PolyQuanta section to reflect changes in feature set and planned features. Added PolyFlux to planned modules.
 
 
 ## [v2.0.1] — 2025-09-09 ([diff][v2.0.1-diff])

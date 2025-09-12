@@ -21,7 +21,7 @@ Experimental (but musical!) modules for VCV Rack 2. Have **FUN** 🙂
 
 ## Modules
 
-### PolyQuanta
+### PolyQuanta (WIP)
 
 <p align="center">
   <img src="res/images/PolyQuanta.png"
@@ -30,16 +30,16 @@ Experimental (but musical!) modules for VCV Rack 2. Have **FUN** 🙂
   <br>
 </p>
 
-A **16-channel polyphonic slew/glide + quantizer**. Add controllable portamento, scale-locked notes, and clocked/random motion to mono or poly CV streams.
+A **16-channel polyphonic Swiss-army quantizer**. Add controllable portamento, scale-locked notes, and clocked/random motion to mono or poly CV streams.
 
 **Features**
 
-* **Polyphonic**: up to 16 channels (mono-to-poly/poly-to-mono options).
-* **Glide/Slew**: both per-channel and global settings.
-* **Attenuverter**: global setting (planned: per-channel).
-* **Quantizer**: EDO/TET support (many built-in tunings/scales) and custom scale masks (root-relative). cents output displayed per channel.
+* **Polyphonic**: up to 16 channels, auto or manual channel selection (mono-to-poly/poly-to-mono options).
+* **Glide/Slew**: both per-channel and global settings. enable/disable for each channel.
+* **Attenuverter**: both per-channel and global settings in the offset knob context menus.
+* **Quantizer**: EDO/TET support (many built-in tunings/scales) and custom scale masks (root-relative). cents output displayed per channel. Toggle quantize mode per channel (with batch actions for ALL/EVEN/ODD).
 * **Snap modes**: Nearest / Up / Down / **Directional** (with stable, center-anchored hysteresis).
-* **Clocked randomization**: nudge settings at a set time interval (int/ext clock with div/mult) or on trigger. selectable amount globally. (planned: min/max range and amount per channel or globally).
+* **Clocked randomization**: nudge settings at a set time interval (int/ext clock with div/mult) or on trigger. selectable amount globally.
 * Designed to be **CPU-light** and friendly for live tweaking.
 * **Fun secrets hidden away** 🙂
 
@@ -49,13 +49,26 @@ A **16-channel polyphonic slew/glide + quantizer**. Add controllable portamento,
 * Tight, scale-locked arpeggios from smooth LFOs or envelopes.
 * Clocked “steppy” motion that still lands on musical notes.
 * Poly CV processing for layered voices and chords.
-* Generative ambient patches (my favorite).
+* Generative ambient patches with minimal module count (my favorite).
+
+**WIP features**
+
+* Add more scales for EDO/TET 
+  
+  * Add 12-EDO scales to 24, 36, 48, 60, 72, 96, 120
+  * Add more TET tunings
+* Randomization: min/max range and amount per parameter or globally
+* Signal chain control per channel (with batch settings)
+* Mix inputs to multiple outputs (maybe)
+* CV input to multiple parameters (maybe)
+* Quantizer: glissando mode
 
 ---
 
 ### Planned modules
 
 * **PolyQuantaXL** – A larger take on PolyQuanta with more features, an expanded UI, and additional CV I/O for deeper modulation.
+* **PolyFlux** – multichannel motion & chance. Sequencers, clock generators, LFOs, and more.
 
 ## Changelog
 

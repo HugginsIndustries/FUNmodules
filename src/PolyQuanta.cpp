@@ -1183,14 +1183,20 @@ struct PolyQuanta : Module {
                         int mfac = (idx - (DIV_MAX-1)) + 1; // 2..64
                         div = 1; mul = mfac;
                     }
-                    bool ratioChanged = (idx != rndPrevRatioIdx);
+
+                    // Treat changes in the *actual ratio* as significant,
+                    // not tiny index flips from knob jitter.
+                    bool ratioChanged = (div != rndCurrentDivide) || (mul != rndCurrentMultiply);
                     if (ratioChanged) {
-                        rndPrevRatioIdx = idx;
-                        // Reset phase and counters
-                        rndMulIndex = 0; rndMulNextTime = -1.f; rndMulBaseTime = rndAbsTimeSec;
-                        if (div > 1) rndDivCounter = 0; else if (mul > 1) { /* first pulse also at edge, handled below */ }
+                        // Reset phase/counters; anchor is chosen below per case.
+                        rndMulIndex = 0;
+                        rndMulNextTime = -1.f;
+                        if (div > 1) rndDivCounter = 0;
                     }
-                    rndCurrentDivide = div; rndCurrentMultiply = mul;
+                    // Publish the current ratio for UI and later comparisons.
+                    rndCurrentDivide = div;
+                    rndCurrentMultiply = mul;
+
                     if (div > 1 && mul == 1) {
                         // Pure division: emit only on qualifying edges
                         if (edgeThisBlock && (rndDivCounter % div) == 0) doRandomize();
@@ -1198,18 +1204,32 @@ struct PolyQuanta : Module {
                         // 1x: fire on every edge
                         if (edgeThisBlock) doRandomize();
                     } else if (mul > 1 && div == 1) {
-                        // Multiplication: first pulse AT edge, then (mul-1) evenly spaced after
-                        if (edgeThisBlock || ratioChanged) {
-                            if (edgeThisBlock) doRandomize(); // pulse at the edge
-                            rndMulBaseTime = rndAbsTimeSec; // anchor
-                            rndMulIndex = 0; // counts interior pulses emitted
-                            float period = rndClockPeriodSec;
-                            if (period <= 0.f) { rndMulNextTime = -1.f; }
-                            else {
-                                float subdiv = period / (float)mul;
-                                rndMulNextTime = rndMulBaseTime + subdiv; // first interior pulse time
+
+                        // Multiplication: 1 pulse AT the edge, then (mul-1) evenly spaced after.
+                        // Re-anchor on the edge (best alignment) or if the ratio just changed.
+                        if (edgeThisBlock) {
+                            doRandomize();                        // pulse at the edge
+                            rndMulBaseTime = rndClockLastEdge;    // align exactly to the measured edge
+                            rndMulIndex = 0;
+                            if (rndClockPeriodSec > 0.f) {
+                                float subdiv = rndClockPeriodSec / (float)mul;
+                                rndMulNextTime = rndMulBaseTime + subdiv;
+                            } else {
+                                rndMulNextTime = -1.f;
+                            }
+                        } else if (ratioChanged) {
+                            // If user moved the control between edges, anchor "now".
+                            rndMulBaseTime = rndAbsTimeSec;
+                            rndMulIndex = 0;
+                            if (rndClockPeriodSec > 0.f) {
+                                float subdiv = rndClockPeriodSec / (float)mul;
+                                rndMulNextTime = rndMulBaseTime + subdiv;
+                            } else {
+                                rndMulNextTime = -1.f;
                             }
                         }
+                        // Emit interior pulses when their scheduled times arrive.
+
                         if (rndMulNextTime >= 0.f && rndClockPeriodSec > 0.f) {
                             float subdiv = rndClockPeriodSec / (float)mul;
                             while (rndMulNextTime >= 0.f && rndMulNextTime <= rndAbsTimeSec + 1e-9f) {
@@ -1892,8 +1912,8 @@ struct PolyQuantaWidget : ModuleWidget {
                     // Batch apply offset quantization mode to all channels
                     menu->addChild(rack::createSubmenuItem("Batch: Offset knob snap mode", "", [m](rack::ui::Menu* sm){
                         auto applyAll=[m](int mode){ m->snapOffsetMode = mode; for(int i=0;i<16;++i) m->snapOffsetModeCh[i]=mode; };
-                        sm->addChild(rack::createCheckMenuItem("Voltage (+-10 V)", "", [m]{ return m->snapOffsetMode == 0; }, [applyAll]{ applyAll(0); }));
-                        sm->addChild(rack::createCheckMenuItem("Semitones (EDO/TET)", "", [m]{ return m->snapOffsetMode == 1; }, [applyAll]{ applyAll(1); }));
+                        sm->addChild(rack::createCheckMenuItem("Voltage (±10 V)", "", [m]{ return m->snapOffsetMode == 0; }, [applyAll]{ applyAll(0); }));
+                        sm->addChild(rack::createCheckMenuItem("Semitones (EDO/TET accurate)", "", [m]{ return m->snapOffsetMode == 1; }, [applyAll]{ applyAll(1); }));
                         sm->addChild(rack::createCheckMenuItem("Cents (1/1200 V)", "", [m]{ return m->snapOffsetMode == 2; }, [applyAll]{ applyAll(2); }));
                     }));
                     menu->addChild(rack::createMenuItem("Set all offsets to 0", "", [m]{
@@ -1901,6 +1921,18 @@ struct PolyQuantaWidget : ModuleWidget {
                     }));
                     menu->addChild(new MenuSeparator);
                     menu->addChild(rack::createMenuLabel("Quantization"));
+                        // Batch: Quantize to scale enable (all/even/odd)
+                        menu->addChild(rack::createSubmenuItem("Batch: Quantize to scale", "", [m](rack::ui::Menu* sm){
+                            sm->addChild(rack::createMenuItem("All ON", "", [m]{ for (int i=0;i<16;++i) m->qzEnabled[i]=true; }));
+                            sm->addChild(rack::createMenuItem("Even ON", "", [m]{ for (int i=0;i<16;++i) if ((i%2)==1) m->qzEnabled[i]=true; }));
+                            sm->addChild(rack::createMenuItem("Odd ON", "", [m]{ for (int i=0;i<16;++i) if ((i%2)==0) m->qzEnabled[i]=true; }));
+                            sm->addChild(new MenuSeparator);
+                            sm->addChild(rack::createMenuItem("All OFF", "", [m]{ for (int i=0;i<16;++i) m->qzEnabled[i]=false; }));
+                            sm->addChild(rack::createMenuItem("Even OFF", "", [m]{ for (int i=0;i<16;++i) if ((i%2)==1) m->qzEnabled[i]=false; }));
+                            sm->addChild(rack::createMenuItem("Odd OFF", "", [m]{ for (int i=0;i<16;++i) if ((i%2)==0) m->qzEnabled[i]=false; }));
+                        }));
+                        // Reset all octave shifts (after Batch submenu)
+                        menu->addChild(rack::createMenuItem("Reset all oct shifts", "", [m]{ for (int i=0;i<16;++i) m->postOctShift[i] = 0; }));
                     menu->addChild(new MenuSeparator);
                     menu->addChild(rack::createMenuLabel("Dual-mode: Global Offset"));
                     menu->addChild(rack::createBoolMenuItem("Global offset always on", "", [m]{ return m->globalOffsetAlwaysOn; }, [m](bool v){ m->globalOffsetAlwaysOn = v; }));
@@ -1934,14 +1966,14 @@ struct PolyQuantaWidget : ModuleWidget {
                     // module floats via a tiny Quantity).
                     {
                         auto* q = new FloatMenuQuantity(&m->preScale[chIndex],
-                            -1.0f, 1.0f, 1.0f, "Scale (pre-range)", " ×", 2);
+                            -1.0f, 1.0f, 1.0f, "Scale (attenuverter)", " ×", 2);
                         auto* s = new rack::ui::Slider();
                         s->quantity = q; s->box.size.x = 220.f;
                         menu->addChild(s);
                     }
                     {
                         auto* q = new FloatMenuQuantity(&m->preOffset[chIndex],
-                            -10.0f, 10.0f, 0.0f, "Offset (pre-range)", " V", 2);
+                            -10.0f, 10.0f, 0.0f, "Offset (post-scale)", " V", 2);
                         auto* s = new rack::ui::Slider();
                         s->quantity = q; s->box.size.x = 220.f;
                         menu->addChild(s);
@@ -1949,8 +1981,8 @@ struct PolyQuantaWidget : ModuleWidget {
 
                     // Per-channel offset knob snap mode
                     menu->addChild(rack::createSubmenuItem("Offset knob snap mode", "", [m, chIndex](rack::ui::Menu* sm){
-                        sm->addChild(rack::createCheckMenuItem("Voltages (+-10 V)", "", [m,chIndex]{ return m->snapOffsetModeCh[chIndex]==0; }, [m,chIndex]{ m->snapOffsetModeCh[chIndex]=0; }));
-                        sm->addChild(rack::createCheckMenuItem("Semitones (EDO/TET)", "", [m,chIndex]{ return m->snapOffsetModeCh[chIndex]==1; }, [m,chIndex]{ m->snapOffsetModeCh[chIndex]=1; }));
+                        sm->addChild(rack::createCheckMenuItem("Voltages (±10 V)", "", [m,chIndex]{ return m->snapOffsetModeCh[chIndex]==0; }, [m,chIndex]{ m->snapOffsetModeCh[chIndex]=0; }));
+                        sm->addChild(rack::createCheckMenuItem("Semitones (EDO/TET accurate)", "", [m,chIndex]{ return m->snapOffsetModeCh[chIndex]==1; }, [m,chIndex]{ m->snapOffsetModeCh[chIndex]=1; }));
                         sm->addChild(rack::createCheckMenuItem("Cents (1/1200 V)", "", [m,chIndex]{ return m->snapOffsetModeCh[chIndex]==2; }, [m,chIndex]{ m->snapOffsetModeCh[chIndex]=2; }));
                     }));
                     menu->addChild(new MenuSeparator);
@@ -2645,21 +2677,6 @@ struct PolyQuantaWidget : ModuleWidget {
                 }
             }));
         }));
-
-    // Batch: Quantize to scale enable (all/even/odd)
-    menu->addChild(rack::createSubmenuItem("Batch: Quantize to scale", "", [m](rack::ui::Menu* sm){
-            sm->addChild(rack::createMenuItem("All ON", "", [m]{ for (int i=0;i<16;++i) m->qzEnabled[i]=true; }));
-            sm->addChild(rack::createMenuItem("Even ON", "", [m]{ for (int i=0;i<16;++i) if ((i%2)==1) m->qzEnabled[i]=true; }));
-            sm->addChild(rack::createMenuItem("Odd ON", "", [m]{ for (int i=0;i<16;++i) if ((i%2)==0) m->qzEnabled[i]=true; }));
-            sm->addChild(new MenuSeparator);
-            sm->addChild(rack::createMenuItem("All OFF", "", [m]{ for (int i=0;i<16;++i) m->qzEnabled[i]=false; }));
-            sm->addChild(rack::createMenuItem("Even OFF", "", [m]{ for (int i=0;i<16;++i) if ((i%2)==1) m->qzEnabled[i]=false; }));
-            sm->addChild(rack::createMenuItem("Odd OFF", "", [m]{ for (int i=0;i<16;++i) if ((i%2)==0) m->qzEnabled[i]=false; }));
-        }));
-    // Reset all octave shifts (after Batch submenu)
-    menu->addChild(rack::createMenuItem("Reset all oct shifts", "", [m]{ for (int i=0;i<16;++i) m->postOctShift[i] = 0; }));
-
-    // Per-channel octave shift moved to offset knob context menus
     }
 };
 
