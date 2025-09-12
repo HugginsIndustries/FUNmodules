@@ -454,7 +454,7 @@ struct PolyQuanta : Module {
         }
         qc.root = rootNote;
         qc.useCustom = useCustomScale;
-        qc.customFollowsRoot = customScaleFollowsRoot;
+        qc.customFollowsRoot = true;  // always follow root
         qc.customMask12 = customMask12;
         qc.customMask24 = customMask24;
         qc.scaleIndex = scaleIndex;
@@ -1522,7 +1522,7 @@ struct PolyQuanta : Module {
                     hi::dsp::QuantConfig qc;
                     if (tuningMode == 0) { qc.edo = (edo <= 0) ? 12 : edo; qc.periodOct = 1.f; }
                     else { qc.edo = tetSteps > 0 ? tetSteps : 9; qc.periodOct = (tetPeriodOct > 0.f) ? tetPeriodOct : std::log2(3.f/2.f); }
-                    qc.root = rootNote; qc.useCustom = useCustomScale; qc.customFollowsRoot = customScaleFollowsRoot;
+                    qc.root = rootNote; qc.useCustom = useCustomScale; qc.customFollowsRoot = true;  // always follow root
                     qc.customMask12 = customMask12; qc.customMask24 = customMask24; qc.scaleIndex = scaleIndex;
                     if (qc.useCustom && (qc.edo!=12 && qc.edo!=24)) {
                         if ((int)customMaskGeneric.size()==qc.edo) { qc.customMaskGeneric=customMaskGeneric.data(); qc.customMaskLen=(int)customMaskGeneric.size(); }
@@ -1966,7 +1966,7 @@ struct PolyQuantaWidget : ModuleWidget {
                     // module floats via a tiny Quantity).
                     {
                         auto* q = new FloatMenuQuantity(&m->preScale[chIndex],
-                            -1.0f, 1.0f, 1.0f, "Scale (attenuverter)", " ×", 2);
+                            -10.0f, 10.0f, 1.0f, "Scale (attenuverter)", " ×", 2);
                         auto* s = new rack::ui::Slider();
                         s->quantity = q; s->box.size.x = 220.f;
                         menu->addChild(s);
@@ -2260,6 +2260,46 @@ struct PolyQuantaWidget : ModuleWidget {
         }));
     // EDO selection: curated quick picks with descriptions + full range navigator (labels show cents/step)
         menu->addChild(rack::createSubmenuItem("EDO", "", [m](rack::ui::Menu* sm){
+            
+            // ── helpers to preserve the current custom mask across EDO changes ─────────
+            auto readMask = [m](int Nsrc) {
+                std::vector<uint8_t> out;
+                if (Nsrc == 12) {
+                    out.assign(12, 0);
+                    for (int i = 0; i < 12; ++i) out[(size_t)i] = ((m->customMask12 >> i) & 1u) ? 1 : 0;
+                } else if (Nsrc == 24) {
+                    out.assign(24, 0);
+                    for (int i = 0; i < 24; ++i) out[(size_t)i] = ((m->customMask24 >> i) & 1u) ? 1 : 0;
+                } else {
+                    out = m->customMaskGeneric;
+                    if ((int)out.size() != Nsrc) out.assign((size_t)Nsrc, 0);
+                }
+                return out;
+            };
+            auto writeMask = [m](int Ndst, const std::vector<uint8_t>& in) {
+                if (Ndst == 12) {
+                    uint32_t m12 = 0u; for (int i = 0; i < 12 && i < (int)in.size(); ++i) if (in[(size_t)i]) m12 |= (1u << i);
+                    m->customMask12 = m12;
+                } else if (Ndst == 24) {
+                    uint32_t m24 = 0u; for (int i = 0; i < 24 && i < (int)in.size(); ++i) if (in[(size_t)i]) m24 |= (1u << i);
+                    m->customMask24 = m24;
+                } else {
+                    m->customMaskGeneric = in;
+                    m->customMaskGeneric.resize((size_t)Ndst, 0);
+                }
+            };
+            auto resampleMask = [](const std::vector<uint8_t>& src, int Ndst) {
+                std::vector<uint8_t> dst((size_t)Ndst, 0);
+                int Nsrc = (int)src.size();
+                if (Nsrc <= 0 || Ndst <= 0) return dst;
+                for (int i = 0; i < Nsrc; ++i) if (src[(size_t)i]) {
+                    int j = (int)std::round((double)i * (double)Ndst / (double)Nsrc);
+                    if (j >= Ndst) j = Ndst - 1;
+                    dst[(size_t)j] = 1;
+                }
+                return dst;
+            };
+
             struct Quick { int edo; const char* desc; };
             static const Quick quicks[] = {
                 {5,  "Equal pentatonic; spacious, open."},
@@ -2307,18 +2347,51 @@ struct PolyQuantaWidget : ModuleWidget {
                 sm->addChild(rack::createCheckMenuItem(
                     rack::string::f("%d-EDO (%.2f¢)", e, cents), q.desc,
                     [m,e]{ return m->tuningMode==0 && m->edo==e; },
-                    [m,e]{ m->tuningMode=0; m->edo=e; m->rootNote%=e; }
+                    [m,e, readMask, writeMask, resampleMask]{
+                        // Preserve root by pitch…
+                        int oldEDO  = std::max(1, m->edo);
+                        int oldRoot = (m->rootNote % oldEDO + oldEDO) % oldEDO;
+                        // …and resample custom mask if we’re using & remembering it.
+                        std::vector<uint8_t> src;
+                        bool keepMask = (m->useCustomScale && m->rememberCustomScale);
+                        if (keepMask) src = readMask(oldEDO);
+                        // Switch EDO
+                        m->tuningMode = 0;
+                        m->edo = e;
+                        int newRoot = (int)std::round((double)oldRoot * (double)e / (double)oldEDO);
+                        m->rootNote = (newRoot % e + e) % e;
+                        if (keepMask) {
+                            auto dst = resampleMask(src, e);
+                            writeMask(e, dst);
+                        }
+                        m->invalidateMOSCache();
+                    }
                 ));
             }
             sm->addChild(new MenuSeparator);
             sm->addChild(rack::createMenuLabel("N-EDO"));
-            auto addRange = [m](rack::ui::Menu* dst, int a, int b){
+            auto addRange = [m, readMask, writeMask, resampleMask](rack::ui::Menu* dst, int a, int b){
                 for (int e = a; e <= b; ++e) {
                     float cents = 1200.f / (float)e;
                     dst->addChild(rack::createCheckMenuItem(
                         rack::string::f("%d-EDO (%.2f¢)", e, cents), "",
                         [m,e]{ return m->tuningMode==0 && m->edo==e; },
-                        [m,e]{ m->tuningMode=0; m->edo=e; m->rootNote%=e; }
+                        [m,e, readMask, writeMask, resampleMask]{
+                            int oldEDO  = std::max(1, m->edo);
+                            int oldRoot = (m->rootNote % oldEDO + oldEDO) % oldEDO;
+                            std::vector<uint8_t> src;
+                            bool keepMask = (m->useCustomScale && m->rememberCustomScale);
+                            if (keepMask) src = readMask(oldEDO);
+                            m->tuningMode = 0;
+                            m->edo = e;
+                            int newRoot = (int)std::round((double)oldRoot * (double)e / (double)oldEDO);
+                            m->rootNote = (newRoot % e + e) % e;
+                            if (keepMask) {
+                                auto dst = resampleMask(src, e);
+                                writeMask(e, dst);
+                            }
+                            m->invalidateMOSCache();
+                        }
                     ));
                 }
             };
@@ -2408,7 +2481,7 @@ struct PolyQuantaWidget : ModuleWidget {
                 m->invalidateMOSCache();
             }));
             sm->addChild(rack::createCheckMenuItem("Remember custom scale", "", [m]{ return m->rememberCustomScale; }, [m]{ m->rememberCustomScale = !m->rememberCustomScale; }));
-            sm->addChild(rack::createCheckMenuItem("Custom scales follow root", "", [m]{ return m->customScaleFollowsRoot; }, [m]{ m->customScaleFollowsRoot = !m->customScaleFollowsRoot; m->invalidateMOSCache(); }));
+            // Removed: following the root is now always enabled for both built-in and custom scales.
             if (m->tuningMode==0 && m->edo == 12 && !m->useCustomScale) {
                 for (int i = 0; i < hi::music::NUM_SCALES12; ++i) {
                     sm->addChild(rack::createCheckMenuItem(hi::music::scales12()[i].name, "", [m,i]{ return m->scaleIndex == i; }, [m,i]{ m->scaleIndex = i; }));
@@ -2452,6 +2525,51 @@ struct PolyQuantaWidget : ModuleWidget {
                         }));
                     }
                 }));
+
+                // ─────────────────────────────────────────────────────────────
+                // NEW: Quick seeding from a standard 12-EDO scale while in an
+                // EDO that is a multiple of 12. This keeps "Use custom scale"
+                // ON and does not remove the degree selection menus, so users
+                // can add extra notes afterward.
+                // Places degrees at stepPerSemi * pc (root-relative).
+                if (m->tuningMode == 0 && m->edo > 0 && (m->edo % 12) == 0) {
+                    sm->addChild(rack::createSubmenuItem(
+                        "Select 12-EDO scale", "",
+                        [m](rack::ui::Menu* sm12) {
+                            for (int i = 0; i < hi::music::NUM_SCALES12; ++i) {
+                                const char* name = hi::music::scales12()[i].name;
+                                sm12->addChild(rack::createMenuItem(name, "", [m, i]{
+                                    const int N = std::max(1, m->edo);
+                                    const uint32_t mask12 = hi::music::scales12()[i].mask;
+                                    // stay in custom mode, root-relative so in-between roots work
+                                    m->useCustomScale = true;
+                                    m->customScaleFollowsRoot = true;
+                                    // remember which 12-EDO scale was chosen
+                                    m->scaleIndex = i;
+                                    if (N == 12) {
+                                        m->customMask12 = mask12;
+                                    } else if (N == 24) {
+                                        uint32_t out = 0u;
+                                        for (int pc = 0; pc < 12; ++pc)
+                                            if ((mask12 >> pc) & 1u) out |= (1u << (pc * 2));
+                                        m->customMask24 = out;
+                                    } else {
+                                        const int k = N / 12; // steps per semitone
+                                        m->customMaskGeneric.assign((size_t)N, 0);
+                                        for (int pc = 0; pc < 12; ++pc) {
+                                            if ((mask12 >> pc) & 1u) {
+                                                int step = pc * k;
+                                                if (step >= 0 && step < N) m->customMaskGeneric[(size_t)step] = 1;
+                                            }
+                                        }
+                                    }
+                                    m->invalidateMOSCache();
+                                }));
+                            }
+                        }
+                    ));
+                }
+
                 // Custom scale editing helpers
                 sm->addChild(rack::createMenuItem("Select All Notes", "", [m]{
                     int N = std::max(1, (m->tuningMode==0 ? m->edo : m->tetSteps));
@@ -2482,8 +2600,9 @@ struct PolyQuantaWidget : ModuleWidget {
                     sm->addChild(rack::createMenuItem("Custom: Select aligned 12-EDO notes", "", [m]{
                         int N = std::max(1, m->edo);
                         auto setDeg = [&](int degAbs, bool on){
-                            // degAbs is absolute index 0..N-1. Write into the mask's index space.
-                            int bit = m->customScaleFollowsRoot ? (((degAbs - m->rootNote) % N + N) % N) : degAbs;
+                            // degAbs is absolute index 0..N-1.
+                            // Store mask ROOT-RELATIVE: bit = (degAbs - root) mod N
+                            int bit = (((degAbs - m->rootNote) % N + N) % N); // store root-relative
                             if (N == 12) {
                                 if (on) m->customMask12 |= (1u << bit); else m->customMask12 &= ~(1u << bit);
                             } else if (N == 24) {
@@ -2519,7 +2638,9 @@ struct PolyQuantaWidget : ModuleWidget {
                 sm->addChild(rack::createMenuLabel("Degrees"));
                 int N = (m->tuningMode==0 ? m->edo : m->tetSteps);
                 if (N <= 0) N = 1;
-                auto addDegree = [&](rack::ui::Menu* menuDeg, int d){
+                auto addDegree = [m](rack::ui::Menu* menuDeg, int d){
+                    // Recompute N at call time so this works in submenus opened later.
+                    int N = std::max(1, (m->tuningMode==0 ? m->edo : m->tetSteps));
                     std::string label;
                     // Smart labeling: show 12-EDO pitch-class names when aligned.
                     // Aligned when (root + d) lands on a 12‑EDO boundary for multiples of 12;
@@ -2548,7 +2669,7 @@ struct PolyQuantaWidget : ModuleWidget {
                     } else if (err <= 0.05f) { // within ~6 cents: show approximate with signed cents
                         int pc12 = ((nearestPc % 12) + 12) % 12;
                         int cents = (int)std::round(delta * 100.f);
-                        if (cents != 0) label = rack::string::f("%d (≈%s %+dc)", d + 1, noteNames12[pc12], cents);
+                        if (cents != 0) label = rack::string::f("%d (≈%s %+d¢)", d + 1, noteNames12[pc12], cents);
                         else label = rack::string::f("%d (≈%s)", d + 1, noteNames12[pc12]);
                         named = true;
                     }
@@ -2558,7 +2679,8 @@ struct PolyQuantaWidget : ModuleWidget {
                         "",
                         [m,d]{
                             int Nloc = std::max(1, (m->tuningMode==0 ? m->edo : m->tetSteps));
-                            int bit = m->customScaleFollowsRoot ? d : ((m->rootNote + d) % Nloc + Nloc) % Nloc;
+                            // Mask is stored ROOT-RELATIVE: degree d maps to bit d
+                            int bit = d;
                             if (Nloc==12) return ((m->customMask12 >> bit) & 1u) != 0u;
                             if (Nloc==24) return ((m->customMask24 >> bit) & 1u) != 0u;
                             if ((int)m->customMaskGeneric.size() != Nloc) return false;
@@ -2566,7 +2688,8 @@ struct PolyQuantaWidget : ModuleWidget {
                         },
                         [m,d]{
                             int Nloc = std::max(1, (m->tuningMode==0 ? m->edo : m->tetSteps));
-                            int bit = m->customScaleFollowsRoot ? d : ((m->rootNote + d) % Nloc + Nloc) % Nloc;
+                            // Mask is stored ROOT-RELATIVE: degree d maps to bit d
+                            int bit = d;
                             if (Nloc==12) m->customMask12 ^= (1u << bit);
                             else if (Nloc==24) m->customMask24 ^= (1u << bit);
                             else {
@@ -2579,26 +2702,43 @@ struct PolyQuantaWidget : ModuleWidget {
                 if (N <= 36) {
                     for (int d = 0; d < N; ++d) addDegree(sm, d);
                 } else if (N <= 72) {
-                    // Halves
-                    int halfLo = (N % 2 == 1) ? ((N + 1) / 2) : (N / 2);
-                    int loStart = 0;           int loEnd = halfLo - 1;
-                    int hiStart = halfLo;      int hiEnd = N - 1;
-                    auto addRange = [addDegree](rack::ui::Menu* dest, int start, int end){ for (int d = start; d <= end; ++d) addDegree(dest, d); };
-                    sm->addChild(rack::createSubmenuItem(rack::string::f("%d..%d", loStart + 1, loEnd + 1), "", [loStart,loEnd,addRange](rack::ui::Menu* sm2){ addRange(sm2, loStart, loEnd); }));
-                    sm->addChild(rack::createSubmenuItem(rack::string::f("%d..%d", hiStart + 1, hiEnd + 1), "", [hiStart,hiEnd,addRange](rack::ui::Menu* sm2){ addRange(sm2, hiStart, hiEnd); }));
+                    // Split into halves (keeps addDegree() labeling consistent)
+                    int half = (N % 2 == 1) ? ((N + 1) / 2) : (N / 2);
+                    int loStart = 0, loEnd = half - 1;
+                    int hiStart = half, hiEnd = N - 1;
+                    sm->addChild(rack::createSubmenuItem(
+                        rack::string::f("%d..%d", loStart + 1, loEnd + 1), "",
+                        [=](rack::ui::Menu* sm2){
+                            for (int d = loStart; d <= loEnd; ++d) addDegree(sm2, d);
+                        }));
+                    sm->addChild(rack::createSubmenuItem(
+                        rack::string::f("%d..%d", hiStart + 1, hiEnd + 1), "",
+                        [=](rack::ui::Menu* sm2){
+                            for (int d = hiStart; d <= hiEnd; ++d) addDegree(sm2, d);
+                        }));
                 } else {
-                    // Thirds
-                    int base = N / 3; int rem = N % 3;
+                    // Split into thirds for very large N
+                    int base = N / 3, rem = N % 3;
                     int size1 = base + (rem > 0 ? 1 : 0);
                     int size2 = base + (rem > 1 ? 1 : 0);
-                    // third size3 is implied; remaining entries fill final range
-                    int s1 = 0;           int e1 = size1 - 1;
-                    int s2 = e1 + 1;      int e2 = s2 + size2 - 1;
-                    int s3 = e2 + 1;      int e3 = N - 1;
-                    auto addRange = [addDegree](rack::ui::Menu* dest, int start, int end){ for (int d = start; d <= end; ++d) addDegree(dest, d); };
-                    sm->addChild(rack::createSubmenuItem(rack::string::f("%d..%d", s1 + 1, e1 + 1), "", [s1,e1,addRange](rack::ui::Menu* sm2){ addRange(sm2, s1, e1); }));
-                    sm->addChild(rack::createSubmenuItem(rack::string::f("%d..%d", s2 + 1, e2 + 1), "", [s2,e2,addRange](rack::ui::Menu* sm2){ addRange(sm2, s2, e2); }));
-                    sm->addChild(rack::createSubmenuItem(rack::string::f("%d..%d", s3 + 1, e3 + 1), "", [s3,e3,addRange](rack::ui::Menu* sm2){ addRange(sm2, s3, e3); }));
+                    int s1 = 0,          e1 = size1 - 1;
+                    int s2 = e1 + 1,     e2 = e1 + size2;
+                    int s3 = e2 + 1,     e3 = N - 1;
+                    sm->addChild(rack::createSubmenuItem(
+                        rack::string::f("%d..%d", s1 + 1, e1 + 1), "",
+                        [=](rack::ui::Menu* sm2){
+                            for (int d = s1; d <= e1; ++d) addDegree(sm2, d);
+                        }));
+                    sm->addChild(rack::createSubmenuItem(
+                        rack::string::f("%d..%d", s2 + 1, e2 + 1), "",
+                        [=](rack::ui::Menu* sm2){
+                            for (int d = s2; d <= e2; ++d) addDegree(sm2, d);
+                        }));
+                    sm->addChild(rack::createSubmenuItem(
+                        rack::string::f("%d..%d", s3 + 1, e3 + 1), "",
+                        [=](rack::ui::Menu* sm2){
+                            for (int d = s3; d <= e3; ++d) addDegree(sm2, d);
+                        }));
                 }
             }
         }));

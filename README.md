@@ -55,13 +55,13 @@ A **16-channel polyphonic Swiss-army quantizer**. Add controllable portamento, s
 
 * Add more scales for EDO/TET 
   
-  * Add 12-EDO scales to 24, 36, 48, 60, 72, 96, 120
+  * Add more built-in scales for non-12 EDOs
   * Add more TET tunings
 * Randomization: min/max range and amount per parameter or globally
 * Signal chain control per channel (with batch settings)
 * Mix inputs to multiple outputs (maybe)
 * CV input to multiple parameters (maybe)
-* Quantizer: glissando mode
+* Quantizer: glissando & vibrato modes
 * Quantizer: per-channel quantize strength (maybe)
 
 ---

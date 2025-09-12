@@ -12,12 +12,12 @@ static inline int _modWrap(int x, int m) {
   return (r < 0) ? r + m : r;
 }
 
-// FIX: mask check in pitch-class space relative to root (honors customFollowsRoot)
+// FIX: mask check in pitch-class space relative to root (always follows root)
 static inline bool _isAllowedStepRootRel(int step, const QuantConfig& qc) {
   const int edo = (qc.edo > 0 ? qc.edo : 12);
-  const int rootShift = qc.customFollowsRoot ? qc.root : 0;
+  const int rootShift = qc.root; // Always follow selected root for BOTH built-in tables and custom masks.
   const int pcRel = _modWrap(step - rootShift, edo);
-  // Custom mask path (unchanged)
+  // Custom mask path
   if (qc.useCustom) {
     if (edo == 12) return ((qc.customMask12 >> pcRel) & 1u) != 0u;
     if (edo == 24) return ((qc.customMask24 >> pcRel) & 1u) != 0u;
@@ -79,9 +79,9 @@ float snapEDO(float volts, const QuantConfig& qc, float boundLimit, bool boundTo
     };
     (void)nearestAllowedStep; // FIX: silence -Wunused-but-set-variable
 
-    // Convert volts to step index, accounting for root offset & shiftSteps.
+    // Convert volts to step index, accounting for shiftSteps.
     const float stepsPerVolt = (float)edo / periodSize; // number of EDO steps per volt span
-    float rawSteps = volts * stepsPerVolt + (float)qc.root + (float)shiftSteps;
+    float rawSteps = volts * stepsPerVolt + (float)shiftSteps; // root handled by mask; do not add here
     int baseStep = (int)std::round(rawSteps); // keep your current RoundPolicy
     // FIX: nearest ALLOWED step (root-relative), then feed hysteresis
     int quantStep = _nearestAllowedStepRoot(baseStep, rawSteps, qc);
@@ -95,8 +95,8 @@ float snapEDO(float volts, const QuantConfig& qc, float boundLimit, bool boundTo
         else if (quantStep < minStep) quantStep = minStep;
     }
 
-    // Map steps back to volts, remove root & shift, accounting for period size.
-    float snapped = ((float)quantStep - (float)qc.root - (float)shiftSteps) / stepsPerVolt;
+    // Map steps back to volts, remove shift, accounting for period size.
+    float snapped = ((float)quantStep - (float)shiftSteps) / stepsPerVolt; // do not remove root; keep absolute pitch
     return snapped;
 }
 // Return whether pitch-class step s is allowed under qc (root/mask aware)
