@@ -2612,17 +2612,18 @@ struct PolyQuantaWidget : ModuleWidget {
             sm->addChild(rack::createMenuLabel("Carlos"));
             for (const auto& t : hi::music::tets::carlos()) add(t);
         }));
-    // Quantize strength
-        menu->addChild(rack::createSubmenuItem("Quantize strength", "", [m](rack::ui::Menu* sm){
-            const char* labels[] = {"0%","25%","50%","75%","100%"};
-            const float vals[] = {0.f, 0.25f, 0.5f, 0.75f, 1.f};
-            for (int i = 0; i < 5; ++i) {
-                sm->addChild(rack::createCheckMenuItem(labels[i], "", [m,i,vals]{ return std::fabs(m->quantStrength - vals[i]) < 1e-4f; }, [m,i,vals]{ m->quantStrength = vals[i]; }));
-            }
-        }));
+        // Quantize strength — slider (0..100%) bound directly to m->quantStrength (0..1).
+        {
+            // Display as percent so users see “Quantize strength: 75 %”
+            auto* q = new PercentMenuQuantity(&m->quantStrength, "Quantize strength", /*default*/100.f, /*precision*/3); // precision=3 needed to show 0-100%
+            auto* s = new rack::ui::Slider();
+            s->quantity = q;
+            s->box.size.x = 220.f;   // match other sliders' width for a consistent look
+            menu->addChild(s);
+        }
         // Quantize rounding mode
-    // Show current mode in submenu title
-    menu->addChild(rack::createSubmenuItem("Round", "", [m](rack::ui::Menu* sm){
+        // Show current mode in submenu title
+        menu->addChild(rack::createSubmenuItem("Round", "", [m](rack::ui::Menu* sm){
             struct Opt { const char* label; int mode; const char* desc; };
             static const Opt opts[] = {
                 {"Directional Snap (default)", 0, "Ceil when rising, floor when falling"},

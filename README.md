@@ -37,7 +37,7 @@ A **16-channel polyphonic Swiss-army quantizer**. Add controllable portamento, s
 * **Polyphonic**: up to 16 channels, auto or manual channel selection (mono-to-poly/poly-to-mono options).
 * **Glide/Slew**: both per-channel and global settings. enable/disable for each channel.
 * **Attenuverter**: both per-channel and global settings in the offset knob context menus.
-* **Quantizer**: EDO/TET support (many built-in tunings/scales) and custom scale masks (root-relative). cents output displayed per channel. Toggle quantize mode per channel (with batch actions for ALL/EVEN/ODD).
+* **Quantizer**: EDO/TET support (many built-in tunings/scales) and custom scale masks (root-relative). cents output displayed per channel. Toggle quantize mode per channel (with batch actions for ALL/EVEN/ODD). Fully adjustable global quantize strength with menu slider.
 * **Snap modes**: Nearest / Up / Down / **Directional** (with stable, center-anchored hysteresis).
 * **Clocked randomization**: nudge settings at a set time interval (int/ext clock with div/mult) or on trigger. selectable amount globally.
 * Designed to be **CPU-light** and friendly for live tweaking.
@@ -62,6 +62,7 @@ A **16-channel polyphonic Swiss-army quantizer**. Add controllable portamento, s
 * Mix inputs to multiple outputs (maybe)
 * CV input to multiple parameters (maybe)
 * Quantizer: glissando mode
+* Quantizer: per-channel quantize strength (maybe)
 
 ---
 

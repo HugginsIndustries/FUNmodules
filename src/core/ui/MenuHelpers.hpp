@@ -39,3 +39,32 @@ struct FloatMenuQuantity : rack::Quantity {
     int   getDisplayPrecision() override { return prec; }
 };
 //───────────────────────────────────────────────────────────────────────────────
+
+// Helper Quantity that exposes a 0–100% slider while storing a 0–1 float.
+// Useful for “amount/strength” style controls that live as normalized floats.
+struct PercentMenuQuantity : rack::Quantity {
+    float* ref = nullptr;
+    float  defPct = 100.f;       // default shown in percent
+    std::string label;
+    int prec = 0;                // typically we want integer % steps
+
+    explicit PercentMenuQuantity(float* r,
+                                 std::string lab,
+                                 float defPercent = 100.f,
+                                 int displayPrecision = 0)
+        : ref(r), defPct(defPercent), label(std::move(lab)), prec(displayPrecision) {}
+
+    void  setValue(float v) override {
+        if (v < 0.f)   v = 0.f;
+        if (v > 100.f) v = 100.f;
+        *ref = v / 100.f;        // store normalized 0..1
+    }
+    float getValue() override        { return *ref * 100.f; }  // show 0..100
+    float getDefaultValue() override { return defPct; }
+    float getMinValue() override     { return 0.f; }
+    float getMaxValue() override     { return 100.f; }
+    std::string getLabel() override  { return label; }
+    std::string getUnit() override   { return " %"; }
+    int   getDisplayPrecision() override { return prec; }
+};
+//───────────────────────────────────────────────────────────────────────────────
