@@ -59,10 +59,16 @@ A **16-channel polyphonic Swiss-army quantizer**. Add controllable portamento, s
   * Add more TET tunings
 * Randomization: min/max range and amount per parameter or globally
 * Signal chain control per channel (with batch settings)
-* Mix inputs to multiple outputs (maybe)
-* CV input to multiple parameters (maybe)
-* Quantizer: glissando & vibrato modes
-* Quantizer: per-channel quantize strength (maybe)
+* Mix inputs to multiple outputs (randomization?)
+* CV input to multiple parameters (polyphonic?)
+* Quantizer: 
+
+  * Glissando mode (scale based & chromatic tuning options)
+  * Vibrato mode (with Hz and cents range settings)
+  * Per-channel quantize strength
+  * Scale morph: crossfade between two scale masks over time / CV.
+  * Chord mode (with inversion and octave settings)
+* Probability settings per channel/parameter (menus and/or CV inputs)
 
 ---
 
