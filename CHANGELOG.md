@@ -12,6 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None._
 
 ### Fixed
+- **Quantizer limit bounding respects scale masks**: When `boundToLimit` clamps
+  voltages at the range edges, the quantizer now searches for the nearest
+  allowed degree inside the window before falling back to the boundary,
+  preventing masked steps from leaking through at the limits.
 - **Strum start-delay timing**: start-delay countdown now ticks once per audio block, keeping subdivision spacing consistent.
 
 ### Removed

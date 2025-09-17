@@ -91,8 +91,19 @@ float snapEDO(float volts, const QuantConfig& qc, float boundLimit, bool boundTo
         // Compute min/max step that map inside ±boundLimit volts.
         int maxStep = (int)std::floor(boundLimit * stepsPerVolt);
         int minStep = -maxStep;
-        if (quantStep > maxStep) quantStep = maxStep;
-        else if (quantStep < minStep) quantStep = minStep;
+        if (quantStep > maxStep) {
+            bool found = false;
+            for (int step = maxStep; step >= minStep; --step) {
+                if (_isAllowedStepRootRel(step, qc)) { quantStep = step; found = true; break; }
+            }
+            if (!found) quantStep = maxStep; // fallback: behave like legacy clamp
+        } else if (quantStep < minStep) {
+            bool found = false;
+            for (int step = minStep; step <= maxStep; ++step) {
+                if (_isAllowedStepRootRel(step, qc)) { quantStep = step; found = true; break; }
+            }
+            if (!found) quantStep = minStep; // fallback: behave like legacy clamp
+        }
     }
 
     // Map steps back to volts, remove shift, accounting for period size.
@@ -518,6 +529,21 @@ int pqtests::run_core_tests() {
             int pc = semitones % 12; if (pc < 0) pc += 12;
             assert(allowedPCs.count(pc) > 0 && "Chromatic leak detected in scale quantization");
         }
+    }
+
+    // --- BoundLimit_Pentatonic_RespectsMask ---
+    // Regression: when clamping to ±boundLimit with a sparse mask, ensure we stay on allowed steps.
+    {
+        hi::dsp::QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 1; // transpose mask so the octave boundary is disallowed
+        qc.useCustom = true; qc.customFollowsRoot = true;
+        qc.customMask12 = 0b010010101001; // same C minor pentatonic mask, but root shift makes step 12 forbidden
+        const float boundLimit = 1.f; // ±1 V window → ±12 semitones
+        const float stepsPerVolt = (float)qc.edo / qc.periodOct;
+        float snappedHi = snapEDO(boundLimit, qc, boundLimit, true);
+        int stepHi = (int)std::round(snappedHi * stepsPerVolt);
+        assert(_isAllowedStepRootRel(stepHi, qc) && "Upper bound clamp emitted disallowed degree");
+        int maxStep = (int)std::floor(boundLimit * stepsPerVolt);
+        assert(stepHi <= maxStep && "Upper bound exceeded computed range");
     }
 
     // --- Hysteresis_BoundaryStability test ---
