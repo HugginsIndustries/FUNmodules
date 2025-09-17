@@ -3,6 +3,7 @@
   // Keep cpptools quiet; we'll rely on clangd + compile_commands.json
   "C_Cpp.errorSquiggles": "disabled",
   "C_Cpp.configurationWarnings": "disabled",
+  "C_Cpp.intelliSenseEngine": "disabled",
 
   // Point cpptools (if present) at the same toolchain/headers so it doesn't fight us
   "C_Cpp.default.compilerPath": "C:/msys64/mingw64/bin/g++.exe",
@@ -26,18 +27,23 @@
   // ── clangd (primary language server) ─────────────────────────────────────────
 "clangd.arguments": [
   "--background-index",
-  "--clang-tidy",
   "--header-insertion=never",
   "--limit-results=500",
   "--compile-commands-dir=${workspaceFolder}",
-  // Accept MinGW/UCRT/USR compilers and bare 'g++/gcc' that clangd resolves via PATH.
-  "--query-driver=C:/msys64/mingw64/bin/*;C:/msys64/ucrt64/bin/*;C:/msys64/usr/bin/*;**/g++.exe;**/gcc.exe;**/clang.exe;**/clang++.exe",
-  // Nudge clangd away from MSVC if it can’t read the driver flags for any reason.
-  "--driver-mode=g++",
-  "--target=x86_64-w64-windows-gnu",
-  "--pch-storage=memory",
-  "--log=error"
+  "--query-driver=C:/msys64/mingw64/bin/g++.exe;C:/msys64/mingw64/bin/**;**/x86_64-w64-mingw32-*.exe",
+  "--offset-encoding=utf-16",
+  "--log=verbose"
 ],
+
+"clangd.fallbackFlags": [
+  "-std=c++11",
+  "-IC:/dev/Rack-SDK/include",
+  "-IC:/dev/Rack-SDK/dep/include",
+  "-D_USE_MATH_DEFINES",
+  "-DNOMINMAX",
+  "--target=x86_64-w64-windows-gnu"
+],
+
   // Windows VS Code clients sometimes need UTF-16 offsets
   "clangd.offsetEncoding": "utf-16",
 

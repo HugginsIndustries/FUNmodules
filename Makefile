@@ -42,3 +42,6 @@ build/core_tests: src/core/Strum.cpp src/core/PolyQuantaCore.cpp src/core/ScaleD
 
 core_tests: build/core_tests
 	@./build/core_tests
+
+compiledb:
+	compiledb -n -o compile_commands.json $(MAKE)

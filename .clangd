@@ -1,0 +1,39 @@
+CompileFlags:
+  Add: 
+    - --target=x86_64-w64-mingw32
+    - -D__MINGW32__
+    - -D__MINGW64__
+    - -D_USE_MATH_DEFINES
+    - -DNOMINMAX
+    - -std=c++11
+    - -IC:/msys64/mingw64/include/c++/15.2.0
+    - -IC:/msys64/mingw64/include/c++/15.2.0/x86_64-w64-mingw32
+    - -IC:/msys64/mingw64/include/c++/15.2.0/backward
+    - -IC:/msys64/mingw64/include
+    - -IC:/msys64/mingw64/x86_64-w64-mingw32/include
+  Compiler: C:/msys64/mingw64/bin/g++.exe
+  Remove: 
+    - /clang:*
+    - -target=*
+    - --target=x86_64-pc-windows-msvc*
+
+Index:
+  Background: Build
+
+Diagnostics:
+  ClangTidy:
+    Add: []
+    Remove: 
+      - modernize-*
+      - readability-*
+      - misc-*
+      - clang-analyzer-*
+  UnusedIncludes: None
+  Suppress:
+    - static_assert_requirement_failed
+    - mismatched-tags
+    - "*/Rack-SDK/include/*"
+    - "*/convert.hpp"
+
+InlayHints:
+  Enabled: false

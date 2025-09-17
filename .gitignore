@@ -6,6 +6,7 @@
 !.git*
 !.vscode/
 !.github/
+!.clangd
 !.env.example   # document env vars; see .env below
 
 # -----------------------------

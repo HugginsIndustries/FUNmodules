@@ -9,7 +9,7 @@
 #define UNIT_TESTS
 #endif
 #include <iostream>
-#include "core/PolyQuantaCore.hpp"
+#include "../src/core/PolyQuantaCore.hpp"
 
 int main() {
     // Delegate to the core test harness; returns 0 on success.
