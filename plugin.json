@@ -1,9 +1,9 @@
 {
   "slug": "FUNmodules",
   "name": "FUN modules",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "license": "GPL-3.0-or-later",
-  "brand": "HugginsIndustries",
+  "brand": "Huggins Industries",
   "author": "Christian Huggins",
   "authorEmail": "hugginsindustry@gmail.com",
   "authorUrl": "",
@@ -17,7 +17,7 @@
     {
       "slug": "PolyQuanta",
       "name": "PolyQuanta",
-      "description": "16-channel polyphonic slew/glide processor with offset, clocked randomization, and quantization",
+      "description": "16-channel polyphonic Swiss-army quantizer",
       "tags": [
         "Utility",
         "Polyphonic",

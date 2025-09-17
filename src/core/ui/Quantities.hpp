@@ -43,7 +43,7 @@ namespace hi { namespace ui {
     // mode 2 = cents (1/1200 V). Otherwise show volts. Behavior identical to
     // original implementation.
     struct SemitoneVoltQuantity : rack::engine::ParamQuantity {
-        const int* quantizeOffsetModePtr = nullptr; // 1=semitones, 2=cents
+        const int* snapOffsetModePtr = nullptr; // 1=semitones, 2=cents
         const int* edoPtr = nullptr;
         std::string getDisplayValueString() override;
         void setDisplayValueString(std::string s) override;

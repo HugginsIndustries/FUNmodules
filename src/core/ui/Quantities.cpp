@@ -28,7 +28,7 @@ namespace hi { namespace ui {
     }
     std::string SemitoneVoltQuantity::getDisplayValueString() {
         float v = getValue();
-        int mode = (quantizeOffsetModePtr ? *quantizeOffsetModePtr : 0);
+        int mode = (snapOffsetModePtr ? *snapOffsetModePtr : 0);
         if (mode == 1) { // semitones in current EDO
             int N = (edoPtr && *edoPtr > 0) ? *edoPtr : 12;
             int st = (int)std::round(v * (float)N);
@@ -47,7 +47,7 @@ namespace hi { namespace ui {
         bool hasSt = (t.find("st")!=std::string::npos)||(t.find("semi")!=std::string::npos);
         bool hasCt = (t.find("ct")!=std::string::npos)||(t.find("cent")!=std::string::npos);
         float x=0.f; try { x = std::stof(t); } catch(...) {}
-        int mode = (quantizeOffsetModePtr ? *quantizeOffsetModePtr : 0);
+        int mode = (snapOffsetModePtr ? *snapOffsetModePtr : 0);
         bool semis = (mode==1)&&!hasV; if (hasSt) semis=true;
         bool cents = (mode==2)&&!hasV; if (hasCt) cents=true;
         if (semis) {
