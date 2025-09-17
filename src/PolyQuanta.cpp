@@ -2363,7 +2363,14 @@ struct PolyQuanta : Module {
         float aerrNArr[16] = {0};                                      // Normalized step error for strum
         int signArr[16] = {0};                                         // Step direction for strum ordering
         
-    for (int c = 0; c < polyTrans.curProcN; ++c) {
+        // Track whether start-delay is active so we tick once per block
+        bool strumTickNeeded = false;
+
+        for (int c = 0; c < polyTrans.curProcN; ++c) {
+            if (strumEnabled && strumType == 1 && strumDelayLeft[c] > 0.f) {
+                strumTickNeeded = true;
+            }
+
             // ───────────────────────────────────────────────────────────────────────────────────────────
             // Input Processing: Polyphonic Input Handling and Global Attenuverter
             // ───────────────────────────────────────────────────────────────────────────────────────────
@@ -2499,7 +2506,6 @@ struct PolyQuanta : Module {
             bool inStartDelay = (strumEnabled && strumType == 1 && strumDelayLeft[c] > 0.f);
             if (inStartDelay) {
                 // Hold previous output until strum delay elapses
-                hi::dsp::strum::tickStartDelays((float)args.sampleTime, polyTrans.curProcN, strumDelayLeft);
                 yRaw = yPrev;                                          // Hold previous value during delay
             } else {
                 // ───────────────────────────────────────────────────────────────────────────────────────
@@ -2900,6 +2906,11 @@ struct PolyQuanta : Module {
             outVals[c] = yFinal;                                       // Store final output for this channel
             lastOut[c] = yFinal;                                       // Update last output for next frame
             hi::ui::led::setBipolar(lights[CH_LIGHT + 2*c + 0], lights[CH_LIGHT + 2*c + 1], yFinal, args.sampleTime);
+        }
+
+        // Advance strum countdowns after processing when any voice is still delaying
+        if (strumTickNeeded) {
+            hi::dsp::strum::tickStartDelays((float)args.sampleTime, polyTrans.curProcN, strumDelayLeft);
         }
 
     // ───────────────────────────────────────────────────────────────────────────────────────

@@ -12,10 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None._
 
 ### Fixed
-- _None._
+- **Strum start-delay timing**: start-delay countdown now ticks once per audio block, keeping subdivision spacing consistent.
 
 ### Removed
-- _None._
+- **Custom scales follow root toggle fully removed**: custom scales now always track the selected root; option and related state have been cleaned up for consistency.
 
 ### Deprecated
 - _None._
@@ -89,7 +89,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Directional Snap crest chatter substantially reduced; a rare <~0.1 Hz “peak jump” may still appear (tracked in a follow-up issue).
 
 ### Removed
-- _None._
+- **Custom scale follow-root toggle removed**: custom scales now always track the selected root; option and related state have been cleaned up for consistency.
 
 ### Deprecated
 - _None._
