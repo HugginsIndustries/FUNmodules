@@ -201,8 +201,7 @@ namespace hi { namespace music { namespace mos {
     // mod: pointer to module instance to modify
     // N: number of divisions in the tuning system (EDO steps)
     // pcs: vector of pitch class indices that form the scale
-    // followsRoot: if true, pitch classes are relative to root; if false, absolute
-    void buildMaskFromCycle(PolyQuanta* mod, int N, const std::vector<int>& pcs, bool followsRoot);
+    void buildMaskFromCycle(PolyQuanta* mod, int N, const std::vector<int>& pcs);
     
     // Detect if the current custom scale is a Moment of Symmetry (MOS) scale
     // MOS scales have special mathematical properties and sound balanced
@@ -657,10 +656,8 @@ struct PolyQuanta : Module {
     bool rememberCustomScale = false;       // false = seed from current named scale when enabling custom
                                             // true = preserve custom mask across EDO changes
     
-    // Custom scale interpretation mode
-    bool customScaleFollowsRoot = true;     // true = scale degrees relative to root (transposable)
-                                            // false = absolute pitch classes (fixed)
-    
+
+
     // Custom scale storage for different EDO sizes
     uint32_t customMask12 = 0xFFFu;         // 12-bit mask for 12-EDO (all chromatic notes enabled)
     uint32_t customMask24 = 0xFFFFFFu;      // 24-bit mask for 24-EDO (all quarter-tone notes enabled)
@@ -684,7 +681,6 @@ struct PolyQuanta : Module {
         int      tetSteps    = 0;            // TET steps when cached
         int      rootNote    = 0;            // Root note when cached
         bool     useCustom   = false;        // Custom scale usage when cached
-        bool     followsRoot = false;        // Root-following mode when cached
         uint64_t maskHash    = 0;            // Hash fingerprint of scale mask configuration
     } mosCache;
 
@@ -698,7 +694,6 @@ struct PolyQuanta : Module {
         auto fnv1a = [&h](uint64_t v){ h ^= v; h *= 1099511628211ull; };  // FNV-1a hash function
         fnv1a((uint64_t)N);                   // Include division count
         fnv1a((uint64_t)useCustomScale);      // Include custom scale flag
-        fnv1a((uint64_t)customScaleFollowsRoot); // Include root-following mode
         fnv1a((uint64_t)rootNote);            // Include current root note
         // Hash the appropriate mask based on EDO size
         if (!useCustomScale) {
@@ -824,7 +819,6 @@ struct PolyQuanta : Module {
     float prevTetPeriodOct = -999.f;         // Previous TET period size
     int prevTuningMode = -999;               // Previous tuning system mode
     bool prevUseCustomScale = false;         // Previous custom scale usage flag
-    bool prevCustomFollowsRoot = false;      // Previous root-following mode
     uint32_t prevCustomMask12 = 0;           // Previous 12-EDO custom mask
     uint32_t prevCustomMask24 = 0;           // Previous 24-EDO custom mask
 
@@ -2566,7 +2560,6 @@ struct PolyQuanta : Module {
                     }
                     qc.root = rootNote; 
                     qc.useCustom = useCustomScale; 
-                    qc.customFollowsRoot = customScaleFollowsRoot; 
                     qc.customMask12 = customMask12; 
                     qc.customMask24 = customMask24; 
                     qc.scaleIndex = scaleIndex; 
@@ -2582,13 +2575,11 @@ struct PolyQuanta : Module {
                                       prevEdo != qc.edo || prevTetSteps != tetSteps || 
                                       prevTetPeriodOct != qc.periodOct || prevTuningMode != tuningMode || 
                                       prevUseCustomScale != useCustomScale || 
-                                      prevCustomFollowsRoot != customScaleFollowsRoot || 
                                       prevCustomMask12 != customMask12 || prevCustomMask24 != customMask24); 
                     if (cfgChanged) { 
                         for (int k = 0; k < 16; ++k) latchedInit[k] = false; // Reset all channels
                         prevRootNote = rootNote; prevScaleIndex = scaleIndex; prevEdo = qc.edo; 
                         prevTetSteps = tetSteps; prevTetPeriodOct = qc.periodOct; prevTuningMode = tuningMode; 
-                        prevUseCustomScale = useCustomScale; prevCustomFollowsRoot = customScaleFollowsRoot; 
                         prevCustomMask12 = customMask12; prevCustomMask24 = customMask24; 
                     }
                     
@@ -2793,13 +2784,11 @@ struct PolyQuanta : Module {
                                       prevEdo != qc.edo || prevTetSteps != tetSteps || 
                                       prevTetPeriodOct != qc.periodOct || prevTuningMode != tuningMode || 
                                       prevUseCustomScale != useCustomScale || 
-                                      prevCustomFollowsRoot != customScaleFollowsRoot || 
                                       prevCustomMask12 != customMask12 || prevCustomMask24 != customMask24); 
                     if (cfgChanged) { 
                         for (int k = 0; k < 16; ++k) latchedInit[k] = false; // Reset all channels
                         prevRootNote = rootNote; prevScaleIndex = scaleIndex; prevEdo = qc.edo; 
                         prevTetSteps = tetSteps; prevTetPeriodOct = qc.periodOct; prevTuningMode = tuningMode; 
-                        prevUseCustomScale = useCustomScale; prevCustomFollowsRoot = customScaleFollowsRoot; 
                         prevCustomMask12 = customMask12; prevCustomMask24 = customMask24; 
                     }
                     
@@ -3079,7 +3068,6 @@ static void fillCoreStateFromModule(const PolyQuanta& m, hi::dsp::CoreState& cs)
     // ───────────────────────────────────────────────────────────────────────────────────────
     cs.useCustomScale = m.useCustomScale;                            // Enable custom scale mode
     cs.rememberCustomScale = m.rememberCustomScale;                  // Persist custom scales
-    cs.customScaleFollowsRoot = m.customScaleFollowsRoot;            // Scale relative to root note
     cs.customMask12 = m.customMask12;                                // 12-EDO custom scale bitmask
     cs.customMask24 = m.customMask24;                                // 24-EDO custom scale bitmask
     cs.customMaskGeneric = m.customMaskGeneric;                      // Generic EDO custom scale mask
@@ -3125,7 +3113,6 @@ static void applyCoreStateToModule(const hi::dsp::CoreState& cs, PolyQuanta& m) 
     // ───────────────────────────────────────────────────────────────────────────────────────
     m.useCustomScale = cs.useCustomScale;                            // Restore custom scale mode
     m.rememberCustomScale = cs.rememberCustomScale;                  // Restore persistence setting
-    m.customScaleFollowsRoot = cs.customScaleFollowsRoot;            // Restore root following mode
     m.customMask12 = cs.customMask12;                                // Restore 12-EDO scale mask
     m.customMask24 = cs.customMask24;                                // Restore 24-EDO scale mask
     m.customMaskGeneric = cs.customMaskGeneric;                      // Restore generic scale mask (vector copy)
@@ -3214,10 +3201,9 @@ namespace hi { namespace music { namespace mos {
      * @param mod Target PolyQuanta module to configure
      * @param N Number of steps in the tuning system (EDO)
      * @param pcs Vector of pitch classes to include in the scale
-     * @param followsRoot If true, pitch classes are relative to root; if false, absolute
-     * @note Updates the appropriate custom mask (12-EDO, 24-EDO, or generic) based on N
+     * @note Updates the appropriate custom mask (12-EDO, 24-EDO, or generic) based on N.
      */
-    void buildMaskFromCycle(PolyQuanta* mod, int N, const std::vector<int>& pcs, bool followsRoot){
+    void buildMaskFromCycle(PolyQuanta* mod, int N, const std::vector<int>& pcs){
         if(!mod || N <= 0) return;                                    // Validate inputs
         
         // Initialize appropriate mask based on tuning system
@@ -3231,7 +3217,7 @@ namespace hi { namespace music { namespace mos {
         // Set bits for each pitch class in the scale
         for(int p : pcs){
             if(p < 0 || p >= N) continue;                             // Skip invalid pitch classes
-            int bit = followsRoot ? p : ((mod->rootNote + p) % N + N) % N; // Calculate bit position
+            int bit = p;                                              // Root-relative pitch class
             // Set the appropriate bit in the corresponding mask
             if(N == 12) 
                 mod->customMask12 |= (1u << bit);                         // Set bit in 12-EDO mask
@@ -3273,7 +3259,6 @@ namespace hi { namespace music { namespace mos {
             mod->mosCache.tetSteps == mod->tetSteps &&
             mod->mosCache.rootNote == mod->rootNote &&
             mod->mosCache.useCustom == mod->useCustomScale &&
-            mod->mosCache.followsRoot == mod->customScaleFollowsRoot &&
             mod->mosCache.maskHash == h;
         
         if(keyMatch){
@@ -3295,7 +3280,6 @@ namespace hi { namespace music { namespace mos {
         mod->mosCache.tetSteps = mod->tetSteps;                          // Store TET steps
         mod->mosCache.rootNote = mod->rootNote;                          // Store root note
         mod->mosCache.useCustom = mod->useCustomScale;                   // Store custom scale flag
-        mod->mosCache.followsRoot = mod->customScaleFollowsRoot;         // Store root following flag
         mod->mosCache.maskHash = h;                                      // Store mask hash
         mod->mosCache.found = false;                                     // Initialize as not found
         mod->mosCache.m = 0; 
@@ -3329,23 +3313,11 @@ namespace hi { namespace music { namespace mos {
         // ───────────────────────────────────────────────────────────────────────────────────────
         // Scale Normalization for MOS Analysis
         // ───────────────────────────────────────────────────────────────────────────────────────
-        int rotateBy = 0;                                                // Rotation amount for normalization
-        if(mod->customScaleFollowsRoot) {
-            rotateBy = 0;                                                // Already relative to root
-        } else if(mod->useCustomScale) {
-            // Absolute pitch classes - rotate by negative root note to normalize
-            int r = mod->rootNote % N; 
-            if(r < 0) r += N; 
-            rotateBy = (N - r) % N;
-        }
-        if(!mod->customScaleFollowsRoot && !mod->useCustomScale) {
-            // Unreachable given earlier branch, but kept for safety
-            int mn = *std::min_element(pcs.begin(), pcs.end()); 
-            rotateBy = (N - (mn % N) + N) % N;
-        }
-        
-        // Apply rotation and clean up duplicates
+        int rotateBy = 0;                                                // Root-relative scales need no rotation
+
+        // Apply rotation (no-op) and clean up duplicates
         for(int& p : pcs){ p = (p + rotateBy) % N; }                    // Rotate each pitch class
+
         std::sort(pcs.begin(), pcs.end());                              // Sort for analysis
         pcs.erase(std::unique(pcs.begin(), pcs.end()), pcs.end());     // Remove duplicates
         if(pcs.size() < 2 || pcs.size() > 24) return false;            // Revalidate after cleanup
@@ -4582,8 +4554,7 @@ struct PolyQuantaWidget : ModuleWidget {
                                     smAdv->addChild(rack::createMenuItem(glabel, "", [m, N, gTest, mClamped]{
                                         auto cyc2 = hi::music::mos::generateCycle(N, gTest, mClamped);
                                         m->useCustomScale = true;
-                                        m->customScaleFollowsRoot = true;
-                                        hi::music::mos::buildMaskFromCycle(m, N, cyc2, true);
+                                        hi::music::mos::buildMaskFromCycle(m, N, cyc2);
                                         m->scaleIndex = 0;
                                         m->invalidateMOSCache();
                                     }));
@@ -4611,7 +4582,6 @@ struct PolyQuantaWidget : ModuleWidget {
                                         
                                         // Stay in custom mode, root-relative so in-between roots work
                                         m->useCustomScale = true;
-                                        m->customScaleFollowsRoot = true;
                                         m->scaleIndex = i;                          // Remember which 12-EDO scale was chosen
                                         
                                         // Map 12-EDO scale to current EDO

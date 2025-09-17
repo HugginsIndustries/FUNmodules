@@ -107,7 +107,6 @@ struct CoreState {
 	float  tetPeriodOct = 0.f;           // "tetPeriodOct" (default set by module ctor; kept here for round‑trip)
 	bool   useCustomScale = false;       // "useCustomScale"
 	bool   rememberCustomScale = false;  // "rememberCustomScale"
-	bool   customScaleFollowsRoot = true;// "customScaleFollowsRoot"
 	uint32_t customMask12 = 0xFFFu;      // "customMask12"
 	uint32_t customMask24 = 0xFFFFFFu;   // "customMask24"
 	std::vector<uint8_t> customMaskGeneric; // "customMaskGeneric" + length key

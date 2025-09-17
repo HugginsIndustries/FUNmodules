@@ -353,7 +353,6 @@ void coreToJson(json_t* root, const CoreState& s) noexcept {
     // Custom scale flags
     json_object_set_new(root, "useCustomScale", s.useCustomScale ? json_true() : json_false());
     json_object_set_new(root, "rememberCustomScale", s.rememberCustomScale ? json_true() : json_false());
-    json_object_set_new(root, "customScaleFollowsRoot", s.customScaleFollowsRoot ? json_true() : json_false());
     // Masks
     json_object_set_new(root, "customMask12", json_integer(s.customMask12));
     json_object_set_new(root, "customMask24", json_integer(s.customMask24));
@@ -390,7 +389,6 @@ void coreFromJson(const json_t* root, CoreState& s) noexcept {
     // Custom scale flags
     getBool("useCustomScale", s.useCustomScale);
     getBool("rememberCustomScale", s.rememberCustomScale);
-    getBool("customScaleFollowsRoot", s.customScaleFollowsRoot);
     // Masks
     if (auto* j = json_object_get(root, "customMask12")) if (json_is_integer(j)) s.customMask12 = (uint32_t)json_integer_value(j);
     if (auto* j = json_object_get(root, "customMask24")) if (json_is_integer(j)) s.customMask24 = (uint32_t)json_integer_value(j);
