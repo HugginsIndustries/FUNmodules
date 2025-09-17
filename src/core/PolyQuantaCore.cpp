@@ -128,14 +128,15 @@ int nearestAllowedStep(int sGuess, float fs, const QuantConfig& qc) {
     int N = (qc.edo <= 0) ? 12 : qc.edo; if (N <= 0) return 0; int s0 = (int)std::round(fs); int best = s0; float bestDist = 1e9f;
     for (int d = 0; d <= N; ++d) {
         int c1 = s0 + d, c2 = s0 - d; if (isAllowedStep(c1, qc)) { float dist = std::fabs(fs - (float)c1); if (dist < bestDist) { bestDist = dist; best = c1; if (d == 0) break; } }
-        // FIX: On exact tie (bestDist ~= 0.5), prefer the previously chosen step for stability
+        // NOTE: On exact ties the first candidate (upward search) remains best; use
+        // nearestAllowedStepWithHistory() if you need to honor a previous choice statefully.
         if (d > 0 && isAllowedStep(c2, qc)) { float dist = std::fabs(fs - (float)c2); if (dist < bestDist) { bestDist = dist; best = c2; } }
         if (bestDist < 1e-6f) break;
     }
     return best;
 }
 
-// FIX: Stateful tie-breaking version that prefers previous choice on exact midpoints
+// FIX: Stateful tie-breaking version for callers that need to prefer the previous choice on exact midpoints
 int nearestAllowedStepWithHistory(int sGuess, float fs, const QuantConfig& qc, int prevStep) {
     int candidate = nearestAllowedStep(sGuess, fs, qc);
     // FIX: If we're exactly halfway between two allowed steps, prefer the previous one
