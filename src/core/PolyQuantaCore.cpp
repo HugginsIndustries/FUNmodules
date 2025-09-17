@@ -298,7 +298,7 @@ ShapeParams makeShape(float shape, float kPos, float kNeg) {
     else { p.k = kPos * shape; p.c = 1.f + 0.5f * p.k; p.negative = false; }
     return p;
 }
-// u in [0,1] is normalized error progress. Returns multiplier ≥ EPS.
+// glide helpers map normalized progress to shaped multipliers.
 float shapeMul(float u, const ShapeParams& p, float eps) {
     if (p.k == 0.f) return 1.f;
     float m = p.negative ? std::exp(p.k * u) : 1.f / (1.f + p.k * u);
@@ -307,6 +307,7 @@ float shapeMul(float u, const ShapeParams& p, float eps) {
 }
 }}} // namespace hi::dsp::glide
 
+// range helpers ensure voltages stay inside ±clipLimit before quantization.
 namespace hi { namespace dsp { namespace range {
 // Map a UI index to a half-range (±limit) in volts.
 float clipLimitFromIndex(int idx) {
@@ -552,6 +553,7 @@ int pqtests::run_core_tests() {
     // We synthesize a fractional position exactly at +0.2 and −0.2 around the center and verify
     // slope sign chooses the expected adjustment (+1 when rising above center, -1 when falling below).
     {
+        // Directional rounding tests retain legacy slope-aware behavior.
         RoundPolicy pol{RoundMode::Directional};
         int up = pickRoundingTarget(0, +0.2f, +1, pol);  // rising, above center ⇒ +1
         int stayUp = pickRoundingTarget(0, +0.2f, 0, pol); // neutral slope acts like nearest inside midpoints ⇒ 0
@@ -564,6 +566,7 @@ int pqtests::run_core_tests() {
         using hi::dsp::strum::assign; using hi::dsp::strum::tickStartDelays; using hi::dsp::strum::Mode;
     auto spanCheck=[&](float* arr,int N,float expectSpan){ float mn=1e9f,mx=-1e9f; for(int i=0;i<N;++i){ mn=std::min(mn,arr[i]); mx=std::max(mx,arr[i]); } _assertClose(mx-mn, expectSpan, 1e-4f, "strum span"); };
         // B1: spreadMs=0 -> all zeros
+        // Strum assign() should produce monotonic spans matching the requested spread.
         for(int voices : {4,8,16}) { float d[16]={}; assign(0.f, voices, Mode::Up, d); for(int i=0;i<voices;++i) _assertClose(d[i],0.f,1e-9f,"assign zero spread"); assign(0.f, voices, Mode::Down, d); for(int i=0;i<voices;++i) _assertClose(d[i],0.f,1e-9f,"assign zero spread"); assign(0.f, voices, Mode::Random, d); for(int i=0;i<voices;++i) _assertClose(d[i],0.f,1e-9f,"assign zero spread"); }
         // B2: Up mode monotonic non-decreasing, span ~= 0.1s for spreadMs=100, N=4
         {
@@ -589,6 +592,30 @@ int pqtests::run_core_tests() {
             float left[16]={0.05f,0.02f,0.f,0.01f}; for(int step=0; step<5; ++step){ hi::dsp::strum::tickStartDelays(0.01f,4,left); for(int i=0;i<4;++i) assert(left[i]>=-1e-6f); }
             for(int i=0;i<4;++i) _assertClose(left[i],0.f,1e-4f,"delay exhausted");
         }
+    }
+
+    // --- Range conditioning (clip/scale) ---
+    {
+        using hi::dsp::range::Mode;
+        using hi::dsp::range::apply;
+        // Hard clip should clamp to ±clipLimit when soft clipping is disabled.
+        float clipLim = 5.f;
+        _assertClose(apply(8.f, Mode::Clip, clipLim, false), clipLim, 1e-6f, "range hard clip +");
+        _assertClose(apply(-6.f, Mode::Clip, clipLim, false), -clipLim, 1e-6f, "range hard clip -");
+        // Soft clip delegates to clip::soft() for the knee; compare against the helper directly.
+        float softIn = 9.5f;
+        float softExpect = hi::dsp::clip::soft(softIn, hi::consts::MAX_VOLT_CLAMP);
+        _assertClose(apply(softIn, Mode::Clip, hi::consts::MAX_VOLT_CLAMP, true), softExpect, 1e-6f, "range soft clip matches");
+        // Scale mode should proportionally shrink the signal and respect the same ±limit.
+        float scaled = apply(8.f, Mode::Scale, clipLim, false);
+        _assertClose(scaled, 8.f * (clipLim / hi::consts::MAX_VOLT_CLAMP), 1e-6f, "range scale inside limit");
+        float scaledClamp = apply(20.f, Mode::Scale, clipLim, false);
+        _assertClose(scaledClamp, clipLim, 1e-6f, "range scale clamp");
+        // clipLimitFromIndex() should gracefully clamp out-of-range indices.
+        _assertClose(range::clipLimitFromIndex(-5), 10.f, 1e-6f, "clip index underflow");
+        _assertClose(range::clipLimitFromIndex(99), 10.f, 1e-6f, "clip index overflow");
+        // scale-only edge: zero limit should return 0 irrespective of input.
+        _assertClose(apply(3.f, Mode::Scale, 0.f, false), 0.f, 1e-6f, "scale zero limit");
     }
 
     // --- Hysteresis thresholds ---

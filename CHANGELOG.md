@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 ### Added
-- _None._
+- Extended pq core tests to cover range conditioning, clip limit bounds, glide shaping, and strum deterministic span expectations.
 
 ### Changed
 - _None._
