@@ -12,6 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Core test build is Rack-SDK optional**: `make core_tests` now proxies to a standalone `tests/Makefile`, so headless test builds succeed even when `plugin.mk` is unavailable (Codex/CI containers).
 
 ### Fixed
+- **PolyQuanta rounding nudges honor tuning**: Directional/Ceil/Floor rounding now derives the nudge size from the active
+  tuning step instead of assuming 12-EDO semitones, keeping non-12 scales aligned.
 - **Quantizer limit bounding respects scale masks**: When `boundToLimit` clamps
   voltages at the range edges, the quantizer now searches for the nearest
   allowed degree inside the window before falling back to the boundary,
