@@ -2674,42 +2674,48 @@ struct PolyQuanta : Module {
                     // ───────────────────────────────────────────────────────────────────────────────────
                     // Advanced Rounding Mode Processing: Directional Nudging and Scale-Aware Selection
                     // ───────────────────────────────────────────────────────────────────────────────────
-                    if (quantRoundMode != 1) { 
-                        // Calculate semitone differences for directional analysis
-                        float rawSemi = yRel * 12.f; 
-                        float snappedSemi = yQRel * 12.f; 
-                        float diff = rawSemi - snappedSemi; 
-                        float prev = prevYRel[c]; 
-                        float dir = (yRel > prev + 1e-6f) ? 1.f : (yRel < prev - 1e-6f ? -1.f : 0.f); 
-                        int slopeDir = (dir > 0.f) ? +1 : (dir < 0.f ? -1 : 0); 
-                        
+                    if (quantRoundMode != 1) {
+                        // Step-aware rounding: derive the active tuning's volts-per-step so nudges follow the scale grid
+                        const float rawStepVolts = (N > 0 && period > 0.f)
+                                                     ? (period / static_cast<float>(N))
+                                                     : 0.f;
+                        const float voltsPerStep = (rawStepVolts > 0.f) ? rawStepVolts : (1.f / 12.f);
+                        const float nudgeVolts = voltsPerStep * 0.51f;          // Match legacy 51% bias, but scale by tuning
+                        const float stepTolVolts = std::max(1e-5f, voltsPerStep * 1e-3f); // ~0.1% of a step for hysteresis
+                        const float stepTolSteps = stepTolVolts / voltsPerStep;
+                        const float diffVolts = yRel - yQRel;
+                        const float diffSteps = diffVolts / voltsPerStep;
+                        float prev = prevYRel[c];
+                        float dir = (yRel > prev + 1e-6f) ? 1.f : (yRel < prev - 1e-6f ? -1.f : 0.f);
+                        int slopeDir = (dir > 0.f) ? +1 : (dir < 0.f ? -1 : 0);
+
                         // Map quantization mode to DSP rounding mode
-                        hi::dsp::RoundMode rm = (quantRoundMode == 0 ? hi::dsp::RoundMode::Directional : 
-                                                (quantRoundMode == 2 ? hi::dsp::RoundMode::Ceil : 
-                                                (quantRoundMode == 3 ? hi::dsp::RoundMode::Floor : hi::dsp::RoundMode::Nearest))); 
-                        hi::dsp::RoundPolicy rp{rm}; 
-                        (void)hi::dsp::pickRoundingTarget(0, diff, (int)slopeDir, rp); 
-                        
-                        // Apply directional nudging based on rounding mode
-                        if (rm == hi::dsp::RoundMode::Directional) { 
-                            if (slopeDir > 0 && diff > 0.f) { 
-                                float nudged = quantizeToScale(yQRel + (1.f/12.f)*0.51f, 0, clipLimit, true); 
-                                if (nudged > yQRel + 1e-5f) yQRel = nudged; 
-                            } else if (slopeDir < 0 && diff < 0.f) { 
-                                float nudged = quantizeToScale(yQRel - (1.f/12.f)*0.51f, 0, clipLimit, true); 
-                                if (nudged < yQRel - 1e-5f) yQRel = nudged; 
-                            } 
-                        } else if (rm == hi::dsp::RoundMode::Ceil) { 
-                            if (diff > 1e-5f) { 
-                                float nudged = quantizeToScale(yQRel + (1.f/12.f)*0.51f, 0, clipLimit, true); 
-                                if (nudged > yQRel + 1e-5f) yQRel = nudged; 
-                            } 
-                        } else if (rm == hi::dsp::RoundMode::Floor) { 
-                            if (diff < -1e-5f) { 
-                                float nudged = quantizeToScale(yQRel - (1.f/12.f)*0.51f, 0, clipLimit, true); 
-                                if (nudged < yQRel - 1e-5f) yQRel = nudged; 
-                            } 
-                        } 
+                        hi::dsp::RoundMode rm = (quantRoundMode == 0 ? hi::dsp::RoundMode::Directional :
+                                                (quantRoundMode == 2 ? hi::dsp::RoundMode::Ceil :
+                                                (quantRoundMode == 3 ? hi::dsp::RoundMode::Floor : hi::dsp::RoundMode::Nearest)));
+                        hi::dsp::RoundPolicy rp{rm};
+                        (void)hi::dsp::pickRoundingTarget(0, diffSteps, (int)slopeDir, rp);
+
+                        // Apply directional nudging based on rounding mode (step thresholds follow tuning scale)
+                        if (rm == hi::dsp::RoundMode::Directional) {
+                            if (slopeDir > 0 && diffSteps > 0.f) {
+                                float nudged = quantizeToScale(yQRel + nudgeVolts, 0, clipLimit, true);
+                                if (nudged > yQRel + stepTolVolts) yQRel = nudged;
+                            } else if (slopeDir < 0 && diffSteps < 0.f) {
+                                float nudged = quantizeToScale(yQRel - nudgeVolts, 0, clipLimit, true);
+                                if (nudged < yQRel - stepTolVolts) yQRel = nudged;
+                            }
+                        } else if (rm == hi::dsp::RoundMode::Ceil) {
+                            if (diffSteps > stepTolSteps) {
+                                float nudged = quantizeToScale(yQRel + nudgeVolts, 0, clipLimit, true);
+                                if (nudged > yQRel + stepTolVolts) yQRel = nudged;
+                            }
+                        } else if (rm == hi::dsp::RoundMode::Floor) {
+                            if (diffSteps < -stepTolSteps) {
+                                float nudged = quantizeToScale(yQRel - nudgeVolts, 0, clipLimit, true);
+                                if (nudged < yQRel - stepTolVolts) yQRel = nudged;
+                            }
+                        }
                         prevYRel[c] = yRel;                                // Update previous value for direction tracking
                     } else { 
                         prevYRel[c] = yRel;                                // Update previous value even when not processing
