@@ -54,7 +54,9 @@
   // ── Terminal env for MSYS2 shells ────────────────────────────────────────────
   "terminal.integrated.env.windows": {
     "MSYSTEM": "MINGW64",
-    "CHERE_INVOKING": "1"
+    "CHERE_INVOKING": "1",
+    "RACK_SDK": "C:/dev/Rack-SDK",
+    "RACK_DIR":  "C:/dev/Rack-SDK"
   },
   "terminal.integrated.profiles.windows": {
   "MSYS2 MINGW64": {
@@ -65,6 +67,7 @@
   },
   "terminal.integrated.defaultProfile.windows": "MSYS2 MINGW64",
 
+  "makefile.makePath": "C:/msys64/usr/bin/make.exe",
 
   // ── Header associations (kept + a few common C++ std headers for ergonomics) ─
   "files.associations": {

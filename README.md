@@ -150,14 +150,17 @@ make clean
 
 ## Unit tests
 
-Core DSP tests can be built and executed headlessly:
+Core DSP tests can be built and executed headlessly, even without the Rack SDK present:
 
-* **Windsurf/VS Code:** run the task **“Build (core tests)”**
+* **Windsurf/VS Code:** run the task **"Build (core tests)"**
 * **Terminal:**
 
   ```bash
-  # Produces build/core_tests and executes it
+  # Build + run via the standalone tests Makefile
   make core_tests
+
+  # Direct access to the tests Makefile (same binary, optional)
+  make -C tests run
   ```
 
 You should see `All core tests passed.` on success.

@@ -24,9 +24,15 @@ DISTRIBUTABLES += $(wildcard LICENSE*)
 DISTRIBUTABLES += $(wildcard presets)
 
 # Include the Rack plugin Makefile framework
-include $(RACK_DIR)/plugin.mk
+RACK_PLUGIN_MK := $(RACK_DIR)/plugin.mk
+ifneq ($(wildcard $(RACK_PLUGIN_MK)),)
+include $(RACK_PLUGIN_MK)
+else
+$(info Rack SDK plugin.mk not found at $(RACK_PLUGIN_MK); skipping plugin-only targets.)
+endif
 
-# ── Convenience targets usable from any terminal (and by Cascade) ─────────────
+# Convenience targets usable from any terminal (and by Cascade)
+
 
 .PHONY: quick core_tests
 
@@ -35,13 +41,12 @@ NPROC ?= $(shell nproc 2>/dev/null || echo 4)
 quick:
 	@$(MAKE) -j$(NPROC)
 
-# Headless unit tests (same compilation line you use in the VS Code task)
-build/core_tests: src/core/Strum.cpp src/core/PolyQuantaCore.cpp src/core/ScaleDefs.cpp tests/main.cpp
-	@mkdir -p build
-	@g++ -std=c++17 -O2 -Wall -DUNIT_TESTS $^ -Isrc -o $@
+# Headless unit tests (build via the standalone tests Makefile)
+build/core_tests:
+	@$(MAKE) -C tests ../$@
 
-core_tests: build/core_tests
-	@./build/core_tests
+core_tests:
+	@$(MAKE) -C tests run
 
 compiledb:
 	compiledb -n -o compile_commands.json $(MAKE)

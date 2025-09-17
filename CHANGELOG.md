@@ -9,7 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Extended pq core tests to cover range conditioning, clip limit bounds, glide shaping, and strum deterministic span expectations.
 
 ### Changed
-- _None._
+- **Core test build is Rack-SDK optional**: `make core_tests` now proxies to a standalone `tests/Makefile`, so headless test builds succeed even when `plugin.mk` is unavailable (Codex/CI containers).
 
 ### Fixed
 - **Quantizer limit bounding respects scale masks**: When `boundToLimit` clamps
@@ -28,7 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None._
 
 ### Docs
-- _None._
+- **README.md**: documented the Rack-free core test workflow and the new `tests/Makefile` entry point.
 
 
 ## [v2.0.2] — 2025-09-16 ([diff][v2.0.2-diff])
