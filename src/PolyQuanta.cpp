@@ -734,26 +734,26 @@ struct PolyQuanta : Module {
     bool rndSyncMode = false;                // Timing mode: false=free-running, true=sync to clock
     // Clock measurement and timing state for sync mode
     dsp::SchmittTrigger rndClockTrig;        // Trigger detector for external clock input
-    float rndTimerSec = 0.f;                 // Free-running timer accumulator (seconds)
-    float rndClockPeriodSec = -1.f;          // Measured clock period with smoothing (seconds)
-    float rndClockLastEdge = -1.f;           // Timestamp of last rising edge (absolute seconds)
+    double rndTimerSec = 0.0;                // Free-running timer accumulator (seconds, double precision for long runs)
+    double rndClockPeriodSec = -1.0;         // Measured clock period with smoothing (seconds, double precision for stability)
+    double rndClockLastEdge = -1.0;          // Timestamp of last rising edge (absolute seconds, stored with extra precision)
     bool  rndClockReady = false;             // Flag: at least two edges measured for period calc
-    float rndAbsTimeSec = 0.f;               // Running absolute time counter for edge timing
+    double rndAbsTimeSec = 0.0;              // Running absolute time counter for edge timing (double precision to prevent drift)
     
     // Per-mode knob position memory - preserves settings when switching timing modes
     float rndTimeRawFree = 0.5f;             // Free-running mode: raw knob value (0.0-1.0)
     float rndTimeRawSync = 0.5f;             // Sync mode: raw knob value (0.0-1.0)
     float rndTimeRawLoaded = 0.5f;           // Legacy: single stored value for compatibility
     bool  prevRndSyncMode = false;           // Previous sync mode state for change detection
-    float rndNextFireTime = -1.f;            // Scheduled randomization time (sync mode, absolute)
+    double rndNextFireTime = -1.0;           // Scheduled randomization time (sync mode, absolute, kept in double precision)
     
     // Clock division/multiplication state for sync mode rhythmic patterns
     int   rndDivCounter = 0;                 // Edge counter for division ratios (÷2, ÷4, etc.)
     int   rndCurrentDivide = 1;              // Active division factor (1=no division)
     int   rndCurrentMultiply = 1;            // Active multiplication factor (1=no multiplication)
     int   rndMulIndex = 0;                   // Current subdivision index within multiply window
-    float rndMulBaseTime = -1.f;             // Anchor timestamp for current multiplication cycle
-    float rndMulNextTime = -1.f;             // Next subdivision event time (absolute seconds)
+    double rndMulBaseTime = -1.0;            // Anchor timestamp for current multiplication cycle (double precision anchor)
+    double rndMulNextTime = -1.0;            // Next subdivision event time (absolute seconds, high precision for scheduling)
     int   rndPrevRatioIdx = -1;              // Previous ratio index for phase reset detection
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1907,20 +1907,20 @@ struct PolyQuanta : Module {
         // ───────────────────────────────────────────────────────────────────────────────────────────────
         // Auto-Randomization Timing State Reset
         // ───────────────────────────────────────────────────────────────────────────────────────────────
-        rndTimerSec = 0.f;                                              // Reset free-running timer
-        rndClockPeriodSec = -1.f;                                       // Reset detected clock period
-        rndClockLastEdge = -1.f;                                        // Reset last clock edge time
+        rndTimerSec = 0.0;                                              // Reset free-running timer with double precision accumulator
+        rndClockPeriodSec = -1.0;                                       // Reset detected clock period stored as double
+        rndClockLastEdge = -1.0;                                        // Reset last clock edge time (double precision timestamp)
         rndClockReady = false;                                          // Reset clock detection state
-        rndAbsTimeSec = 0.f;                                            // Reset absolute time counter
-        rndNextFireTime = -1.f;                                         // Reset next randomization time
+        rndAbsTimeSec = 0.0;                                            // Reset absolute time counter maintained in double
+        rndNextFireTime = -1.0;                                         // Reset next randomization time (double timestamp)
         
         // Reset clock division/multiplication state
         rndDivCounter = 0;                                              // Reset division counter
         rndCurrentDivide = 1;                                           // Reset current division factor
         rndCurrentMultiply = 1;                                         // Reset current multiplication factor
         rndMulIndex = 0;                                                // Reset multiplication index
-        rndMulBaseTime = -1.f;                                          // Reset multiplication base time
-        rndMulNextTime = -1.f;                                          // Reset next multiplication time
+        rndMulBaseTime = -1.0;                                          // Reset multiplication base time using double anchor
+        rndMulNextTime = -1.0;                                          // Reset next multiplication time with double precision
         rndPrevRatioIdx = -1;                                           // Reset previous ratio index
     }
 
@@ -2120,7 +2120,7 @@ struct PolyQuanta : Module {
         // Handle mode switch: recall per-mode stored raw value & reset schedulers appropriately
         if (rndSyncMode != prevRndSyncMode) {
             if (RND_TIME_PARAM < PARAMS_LEN) params[RND_TIME_PARAM].setValue(rndSyncMode ? rndTimeRawSync : rndTimeRawFree);
-            if (rndSyncMode) { rndNextFireTime = -1.f; } else { rndTimerSec = 0.f; } // Reset appropriate scheduler
+            if (rndSyncMode) { rndNextFireTime = -1.0; } else { rndTimerSec = 0.0; } // Reset appropriate scheduler with double timestamps
             prevRndSyncMode = rndSyncMode;                              // Update previous state
         }
         
@@ -2137,7 +2137,7 @@ struct PolyQuanta : Module {
         // Auto-Randomization Clock Measurement and Timing (Sync Mode)
         // ───────────────────────────────────────────────────────────────────────────────────────────────
         // Measure external clock period when in sync mode (edges do NOT randomize directly)
-        float dt = args.sampleTime;                                     // Get sample time delta
+        const double dt = args.sampleTime;                              // Get sample time delta using double precision for timing
         rndAbsTimeSec += dt;                                            // Update absolute time counter
         bool edgeThisBlock = false;
         
@@ -2145,14 +2145,14 @@ struct PolyQuanta : Module {
             // Measure clock period (single SchmittTrigger.process call per block)
             edgeThisBlock = rndClockTrig.process(inputs[RND_TRIG_INPUT].getVoltage());
             if (edgeThisBlock) {
-                if (rndClockLastEdge >= 0.f) {                          // Valid previous edge exists
-                    float p = rndAbsTimeSec - rndClockLastEdge;         // Calculate period between edges
-                    if (p > 1e-4f) {                                    // Minimum valid period threshold
-                        const float alpha = 0.25f;                     // EMA smoothing factor (slightly faster than previous 0.2)
-                        if (rndClockPeriodSec < 0.f) 
+                if (rndClockLastEdge >= 0.0) {                          // Valid previous edge exists
+                    double p = rndAbsTimeSec - rndClockLastEdge;        // Calculate period between edges with double precision
+                    if (p > 1e-4) {                                     // Minimum valid period threshold
+                        const double alpha = 0.25;                      // EMA smoothing factor (slightly faster than previous 0.2)
+                        if (rndClockPeriodSec < 0.0)
                             rndClockPeriodSec = p;                      // Initialize with first measurement
-                        else 
-                            rndClockPeriodSec = (1.f - alpha) * rndClockPeriodSec + alpha * p; // Smooth with EMA
+                        else
+                            rndClockPeriodSec = (1.0 - alpha) * rndClockPeriodSec + alpha * p; // Smooth with EMA in double precision
                         rndClockReady = true;                           // Mark clock as stable and ready
                     }
                 }
@@ -2182,7 +2182,7 @@ struct PolyQuanta : Module {
             
             if (rndSyncMode) {
                 rndTimeRawSync = raw;                                   // Store raw value for sync mode
-                if (rndClockReady && rndClockPeriodSec > 0.f) {
+                if (rndClockReady && rndClockPeriodSec > 0.0) {
                     int idx = (int)std::lround(rack::clamp(raw, 0.f, 1.f) * SYNC_LAST_INDEX); // Map to 0..126
                     if (idx < 0) idx = 0; else if (idx > SYNC_LAST_INDEX) idx = SYNC_LAST_INDEX; // Safety clamp
                     
@@ -2203,7 +2203,7 @@ struct PolyQuanta : Module {
                     if (ratioChanged) {
                         // Reset phase/counters when ratio changes; anchor timing is chosen below per case
                         rndMulIndex = 0;                                // Reset multiplication phase counter
-                        rndMulNextTime = -1.f;                          // Clear next scheduled time
+                        rndMulNextTime = -1.0;                          // Clear next scheduled time (double precision value)
                         if (div > 1) rndDivCounter = 0;                 // Reset division counter for new ratio
                     }
                     
@@ -2227,33 +2227,33 @@ struct PolyQuanta : Module {
                             doRandomize();                              // Execute randomization at clock edge
                             rndMulBaseTime = rndClockLastEdge;          // Align exactly to measured edge timestamp
                             rndMulIndex = 0;                            // Reset subdivision counter
-                            if (rndClockPeriodSec > 0.f) {
-                                float subdiv = rndClockPeriodSec / (float)mul; // Calculate subdivision interval
+                            if (rndClockPeriodSec > 0.0) {
+                                double subdiv = rndClockPeriodSec / (double)mul; // Calculate subdivision interval using doubles
                                 rndMulNextTime = rndMulBaseTime + subdiv;   // Schedule first subdivision
                             } else {
-                                rndMulNextTime = -1.f;                  // Invalid period, disable subdivisions
+                                rndMulNextTime = -1.0;                  // Invalid period, disable subdivisions
                             }
                         } else if (ratioChanged) {
                             // If user changed ratio between clock edges, anchor timing to current time
                             rndMulBaseTime = rndAbsTimeSec;             // Use current time as base
                             rndMulIndex = 0;                            // Reset subdivision counter
-                            if (rndClockPeriodSec > 0.f) {
-                                float subdiv = rndClockPeriodSec / (float)mul; // Calculate subdivision interval
+                            if (rndClockPeriodSec > 0.0) {
+                                double subdiv = rndClockPeriodSec / (double)mul; // Calculate subdivision interval using doubles
                                 rndMulNextTime = rndMulBaseTime + subdiv;   // Schedule first subdivision
                             } else {
-                                rndMulNextTime = -1.f;                      // Invalid period, disable subdivisions
+                                rndMulNextTime = -1.0;                      // Invalid period, disable subdivisions
                             }
                         }
 
                         // Execute interior subdivision pulses when their scheduled times arrive
-                        if (rndMulNextTime >= 0.f && rndClockPeriodSec > 0.f) {
-                            float subdiv = rndClockPeriodSec / (float)mul;  // Subdivision interval
-                            while (rndMulNextTime >= 0.f && rndMulNextTime <= rndAbsTimeSec + 1e-9f) {
+                        if (rndMulNextTime >= 0.0 && rndClockPeriodSec > 0.0) {
+                            double subdiv = rndClockPeriodSec / (double)mul;  // Subdivision interval maintained in double
+                            while (rndMulNextTime >= 0.0 && rndMulNextTime <= rndAbsTimeSec + 1e-9) {
                                 doRandomize();                              // Execute randomization at subdivision
                                 rndMulIndex++;                              // Advance subdivision counter
                                 if (rndMulIndex >= mul - 1) {               // All subdivisions completed?
-                                    rndMulNextTime = -1.f;                  // Disable further subdivisions until next edge
-                                    break; 
+                                    rndMulNextTime = -1.0;                  // Disable further subdivisions until next edge
+                                    break;
                                 }
                                 rndMulNextTime += subdiv;                   // Schedule next subdivision
                             }
@@ -2267,7 +2267,7 @@ struct PolyQuanta : Module {
                 rndTimeRawFree = raw;                                       // Store raw value for free mode
                 float intervalSec = rawToSec(raw);                          // Convert to seconds using log scale
                 if (intervalSec < 0.001f) intervalSec = 0.001f;            // Enforce minimum interval (1ms)
-                rndTimerSec += dt;                                          // Accumulate elapsed time
+                rndTimerSec += dt;                                          // Accumulate elapsed time in double precision
                 if (rndTimerSec >= intervalSec) {                           // Time to randomize?
                     doRandomize();                                          // Execute randomization
                     while (rndTimerSec >= intervalSec) rndTimerSec -= intervalSec; // Handle multiple intervals per block
@@ -2275,7 +2275,7 @@ struct PolyQuanta : Module {
             }
         } else {
             // Auto-randomization disabled: prevent timer overflow for long idle periods
-            if (rndTimerSec > 60.f) rndTimerSec = std::fmod(rndTimerSec, 60.f);
+            if (rndTimerSec > 60.0) rndTimerSec = std::fmod(rndTimerSec, 60.0); // Wrap timer safely using double constants
         }
 
             // ═══════════════════════════════════════════════════════════════════════════
