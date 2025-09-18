@@ -19,6 +19,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   allowed degree inside the window before falling back to the boundary,
   preventing masked steps from leaking through at the limits.
 - **Strum start-delay timing**: start-delay countdown now ticks once per audio block, keeping subdivision spacing consistent.
+- **Directional Snap + Strum stability**: Start-delay now holds only the **output** while the quantizer continues tracking, and strum assignment triggers only on **real target changes** (with a small tolerance, computed from the processed target). Together this removes runaway re-triggers/step-chasing and the rare crash when Directional Snap and Strum are enabled, while preserving pre-patch behavior when strum is disabled.
+
 
 ### Removed
 - **Custom scales follow root toggle fully removed**: custom scales now always track the selected root; option and related state have been cleaned up for consistency.

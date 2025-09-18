@@ -596,6 +596,9 @@ struct PolyQuanta : Module {
     // Per-channel strum delay state (runtime only, not saved to patches)
     float strumDelayAssigned[16] = {0};  // Initial delay assigned to each channel (ms)
     float strumDelayLeft[16] = {0};      // Remaining delay countdown for each channel (ms)
+    float strumPrevTarget[16] = {0.f};   // Last processed target per channel for strum change detection
+    bool  strumPrevInit[16] = {false};   // Tracks whether strumPrevTarget has been primed
+    static constexpr float STRUM_TARGET_TOL = 1e-4f; // Strum target change hysteresis (volts)
 
     // ═══════════════════════════════════════════════════════════════════════════
     // MODE TRACKING AND MIGRATION FLAGS - State change detection and compatibility
@@ -1892,6 +1895,8 @@ struct PolyQuanta : Module {
             lights[CH_LIGHT + 2*i + 1].setBrightness(0.f);             // Turn off negative LED
             strumDelayAssigned[i] = 0.f;                                // Clear assigned strum delay
             strumDelayLeft[i] = 0.f;                                    // Clear remaining strum delay
+            strumPrevTarget[i] = 0.f;                                   // Reset last processed target snapshot
+            strumPrevInit[i] = false;                                   // Mark strum target history as uninitialized
             latchedInit[i] = false;                                     // Reset initialization latch
             preScale[i] = 1.f;                                          // Reset pre-range scaling to unity
             preOffset[i] = 0.f;                                         // Reset pre-range offset to zero
@@ -2362,6 +2367,7 @@ struct PolyQuanta : Module {
         float targetArr[16] = {0};                                     // Target values after processing
         float aerrNArr[16] = {0};                                      // Normalized step error for strum
         int signArr[16] = {0};                                         // Step direction for strum ordering
+        bool targetChangedArr[16] = {false};                           // Tracks raw target changes for strum detection
         
         // Track whether start-delay is active so we tick once per block
         bool strumTickNeeded = false;
@@ -2414,12 +2420,22 @@ struct PolyQuanta : Module {
             // Per-Channel Pre-Range Transform: Apply Scaling and Offset Before Global Range Processing
             // ───────────────────────────────────────────────────────────────────────────────────────────
             targetArr[c] = targetArr[c] * preScale[c] + preOffset[c];  // Apply per-channel transform
+            float targetProcessed = targetArr[c];                      // Cache processed target for reuse
+
+            // Detect actual target changes for strum handling (skip noise-level moves)
+            bool targetChanged = false;
+            if (strumPrevInit[c]) {
+                targetChanged = std::fabs(targetProcessed - strumPrevTarget[c]) > STRUM_TARGET_TOL;
+            }
+            strumPrevTarget[c] = targetProcessed;                      // Update history for next block
+            strumPrevInit[c] = true;                                   // Mark history initialized
+            targetChangedArr[c] = targetChanged;                       // Remember change flag for assignment
 
             // ───────────────────────────────────────────────────────────────────────────────────────────
             // Step Detection: Calculate Error and Direction for Strum Timing
             // ───────────────────────────────────────────────────────────────────────────────────────────
             float yPrev = lastOut[c];                                  // Previous output value
-            float err = target - yPrev;                                // Raw voltage error
+            float err = targetProcessed - yPrev;                       // Raw voltage error based on processed target
             int sign = (err > 0.f) - (err < 0.f);                     // Step direction: +1, 0, or -1
             float aerrV = std::fabs(err);                              // Absolute error in volts
             float aerrN = pitchSafeGlide ? hi::dsp::glide::voltsToSemitones(aerrV) : aerrV; // Normalized error
@@ -2449,8 +2465,8 @@ struct PolyQuanta : Module {
         // Trigger strum delay assignment when step changes are detected
         if (strumEnabled && strumMs > 0.f && polyTrans.curProcN > 1) {
             for (int c = 0; c < polyTrans.curProcN; ++c) {
-                // Assign new delays when: mode changed, direction changed, or step size increased
-                if (modeChanged || signArr[c] != stepSign[c] || aerrNArr[c] > stepNorm[c]) 
+                // Assign new delays when: mode changed, target changed, direction flipped, or step jumped
+                if (modeChanged || targetChangedArr[c] || signArr[c] != stepSign[c] || aerrNArr[c] > stepNorm[c])
                     assignDelayFor(c);
             }
         }
@@ -2504,33 +2520,25 @@ struct PolyQuanta : Module {
             // ───────────────────────────────────────────────────────────────────────────────────────────
             float yRaw = target;                                       // Initialize with target value
             bool inStartDelay = (strumEnabled && strumType == 1 && strumDelayLeft[c] > 0.f);
-            if (inStartDelay) {
-                // Hold previous output until strum delay elapses
-                yRaw = yPrev;                                          // Hold previous value during delay
-            } else {
-                // ───────────────────────────────────────────────────────────────────────────────────────
-                // Slew Processing: Apply Smooth Transitions Based on Quantizer Position
-                // ───────────────────────────────────────────────────────────────────────────────────────
-                if (!noSlew && quantizerPos == QuantizerPos::Post) {   // Post mode: slew BEFORE quantizer
-                    // Calculate shape-aware slew rates based on remaining distance and time
-                    float remainingV = aerrV;                          // Distance remaining to target
-                    float totalJumpV = remainingV;                     // Total jump distance
-                    float baseRateV = totalJumpV / sec;                // Base rate: equal-time distance over seconds
-                    float u = clamp(remainingV / std::max(totalJumpV, hconst::EPS_ERR), 0.f, 1.f); // Progress ratio
-                    
-                    // Apply curve shaping to rise and fall rates
-                    float rateRise = baseRateV * hi::dsp::glide::shapeMul(u, riseParams, hconst::EPS_ERR);
-                    float rateFall = baseRateV * hi::dsp::glide::shapeMul(u, fallParams, hconst::EPS_ERR);
-                    
-                    // Update slew processor only when rates change significantly (avoid zipper noise)
-                    if (std::fabs(rateRise - prevRiseRate[c]) > hconst::RATE_EPS || 
-                        std::fabs(rateFall - prevFallRate[c]) > hconst::RATE_EPS) {
-                        slews[c].setRiseFall(rateRise, rateFall);      // Configure slew processor
-                        prevRiseRate[c] = rateRise;                    // Cache for comparison
-                        prevFallRate[c] = rateFall;                    // Cache for comparison
-                    }
-                    yRaw = slews[c].process(args.sampleTime, target);  // Apply slew processing
+            if (!inStartDelay && !noSlew && quantizerPos == QuantizerPos::Post) {
+                // Slew BEFORE the quantizer only when the voice is not being held by start-delay
+                float remainingV = aerrV;                              // Distance remaining to target
+                float totalJumpV = remainingV;                         // Total jump distance
+                float baseRateV = totalJumpV / sec;                    // Base rate: equal-time distance over seconds
+                float u = clamp(remainingV / std::max(totalJumpV, hconst::EPS_ERR), 0.f, 1.f); // Progress ratio
+
+                // Apply curve shaping to rise and fall rates
+                float rateRise = baseRateV * hi::dsp::glide::shapeMul(u, riseParams, hconst::EPS_ERR);
+                float rateFall = baseRateV * hi::dsp::glide::shapeMul(u, fallParams, hconst::EPS_ERR);
+
+                // Update slew processor only when rates change significantly (avoid zipper noise)
+                if (std::fabs(rateRise - prevRiseRate[c]) > hconst::RATE_EPS ||
+                    std::fabs(rateFall - prevFallRate[c]) > hconst::RATE_EPS) {
+                    slews[c].setRiseFall(rateRise, rateFall);          // Configure slew processor
+                    prevRiseRate[c] = rateRise;                        // Cache for comparison
+                    prevFallRate[c] = rateFall;                        // Cache for comparison
                 }
+                yRaw = slews[c].process(args.sampleTime, target);      // Apply slew processing
             }
 
             // ───────────────────────────────────────────────────────────────────────────────────────────
@@ -2904,14 +2912,18 @@ struct PolyQuanta : Module {
             // - Post mode uses ySlewed as raw signal for blending
             
             // Apply output voltage limiting with soft or hard clipping
-            if (softClipOut) 
-                yFinal = hi::dsp::clip::soft(yFinal, hconst::MAX_VOLT_CLAMP);  // Smooth saturation curve
-            else            
-                yFinal = clamp(yFinal, -hconst::MAX_VOLT_CLAMP, hconst::MAX_VOLT_CLAMP); // Hard limiting
-            
-            outVals[c] = yFinal;                                       // Store final output for this channel
-            lastOut[c] = yFinal;                                       // Update last output for next frame
-            hi::ui::led::setBipolar(lights[CH_LIGHT + 2*c + 0], lights[CH_LIGHT + 2*c + 1], yFinal, args.sampleTime);
+            // Hold the previously latched output while start-delay counts down so the quantizer
+            // can still track the incoming gesture (prevents Directional Snap from chasing late).
+            float yOut = inStartDelay ? yPrev : yFinal;
+
+            if (softClipOut)
+                yOut = hi::dsp::clip::soft(yOut, hconst::MAX_VOLT_CLAMP);  // Smooth saturation curve
+            else
+                yOut = clamp(yOut, -hconst::MAX_VOLT_CLAMP, hconst::MAX_VOLT_CLAMP); // Hard limiting
+
+            outVals[c] = yOut;                                         // Store final output for this channel
+            lastOut[c] = yOut;                                         // Update last output for next frame
+            hi::ui::led::setBipolar(lights[CH_LIGHT + 2*c + 0], lights[CH_LIGHT + 2*c + 1], yOut, args.sampleTime);
         }
 
         // Advance strum countdowns after processing when any voice is still delaying
@@ -3017,6 +3029,8 @@ struct PolyQuanta : Module {
                 // Initialize slew processors and output states to current targets
                 lastOut[c] = target;                                      // Set last output to target
                 slews[c].reset();                                         // Reset slew processor state
+                strumPrevTarget[c] = target;                              // Seed strum change detector with current target
+                strumPrevInit[c] = true;                                  // Mark detector initialized after poly switch
             }
             polyTrans.initToTargetsOnSwitch = false;                      // Clear reinitialization flag
             polyTrans.polyRamp = 0.f;                                    // Start from silence
