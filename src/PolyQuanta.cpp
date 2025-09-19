@@ -3439,10 +3439,10 @@ struct PolyQuantaWidget : ModuleWidget {
         // ───────────────────────────────────────────────────────────────────────────────────────
         // Panel Hardware - Corner Screws
         // ───────────────────────────────────────────────────────────────────────────────────────
-		addChild(createWidget<ScrewBlack>(Vec(RACK_GRID_WIDTH, 0)));                           // Top-left screw
-		addChild(createWidget<ScrewBlack>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));         // Top-right screw
-		addChild(createWidget<ScrewBlack>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH))); // Bottom-left screw
-		addChild(createWidget<ScrewBlack>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH))); // Bottom-right screw
+        addChild(createWidget<ScrewBlack>(Vec(0, 0)));                                      // Top-left
+        addChild(createWidget<ScrewBlack>(Vec(box.size.x - RACK_GRID_WIDTH, 0)));           // Top-right
+        addChild(createWidget<ScrewBlack>(Vec(0, box.size.y - RACK_GRID_WIDTH)));           // Bottom-left
+        addChild(createWidget<ScrewBlack>(Vec(box.size.x - RACK_GRID_WIDTH, box.size.y - RACK_GRID_WIDTH))); // Bottom-right
 
         // ───────────────────────────────────────────────────────────────────────────────────────
         // UI Layout Coordinate System and Placement Constants
@@ -3459,21 +3459,21 @@ struct PolyQuantaWidget : ModuleWidget {
         // ───────────────────────────────────────────────────────────────────────────────────────
         // Global Control Rows - Top Section Layout
         // ───────────────────────────────────────────────────────────────────────────────────────
-        const float yShapeMM = 17.5f;                                           // Rise/Fall shape controls Y position
+        const float yShapeMM = 16.0f;                                           // Rise/Fall shape controls Y position
         const float yGlobalMM = 27.8f;                                          // Global Slew/Offset controls Y position
         
         // Horizontal positioning for global controls (separated for independent adjustment)
-        const float dxColShapesMM = 17.5f;                                      // Rise/Fall shape column offset from center
-        const float dxColGlobalsMM = 19.5f;                                     // Global Slew/Offset column offset from center
-        const float dxToggleMM = 7.0f;                                          // Mode toggle switch inset from global knobs
+        const float dxColShapesMM = 20.2f;                                      // Rise/Fall shape column offset from center
+        const float dxColGlobalsMM = 20.2f;                                     // Global Slew/Offset column offset from center
+        const float dxToggleMM = 9.0f;                                          // Mode toggle switch inset from global knobs
         // ───────────────────────────────────────────────────────────────────────────────────────
         // Per-Channel Control Grid - 8×2 Layout (16 channels total)
         // ───────────────────────────────────────────────────────────────────────────────────────
-        const float yRow0MM = 41.308f;                                          // First row Y position (channels 1-8)
+        const float yRow0MM = 41.308f;                                          // First row Y position
         const float rowDyMM = 8.252f;                                           // Vertical spacing between rows
         const float ledDxMM = 1.2f;                                             // LED horizontal offset from row center
-        const float knobDx1MM = 19.0f;                                          // Inner knob (Slew) offset from LED center
-        const float knobDx2MM = 26.0f;                                          // Outer knob (Offset) offset from LED center
+        const float knobDx1MM = 19.0f;                                          // Inner knob offset from LED center
+        const float knobDx2MM = 28.0f;                                          // Outer knob offset from LED center
         
         // ───────────────────────────────────────────────────────────────────────────────────────
         // Per-Channel Text Readouts - Cents Display Positioning
@@ -3487,10 +3487,10 @@ struct PolyQuantaWidget : ModuleWidget {
         // ───────────────────────────────────────────────────────────────────────────────────────
         // Bottom Section - I/O Jacks and Control Buttons
         // ───────────────────────────────────────────────────────────────────────────────────────
-        const float yInOutMM = 114.000f;                                        // Main IN/OUT jacks Y position
+        const float yInOutMM = 122.000f;                                        // Main IN/OUT jacks Y position
         const float yTrigMM = 122.000f;                                         // Randomize trigger jack Y position
         const float yBtnMM = 106.000f;                                          // Randomize button Y position
-        const float dxPortsMM = 24.000f;                                        // Horizontal offset for IN/OUT jacks
+        const float dxPortsMM = 25.000f;                                        // Horizontal offset for IN/OUT jacks
         
         // ───────────────────────────────────────────────────────────────────────────────────────
         // Auto-Randomization Controls - Clustered Around Main Randomize Button
