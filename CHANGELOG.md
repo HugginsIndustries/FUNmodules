@@ -7,9 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 ### Added
 - Extended pq core tests to cover range conditioning, clip limit bounds, glide shaping, and strum deterministic span expectations.
+- **Module Template**: Complete template package for creating new VCV Rack 2 modules based on PolyQuanta architecture, including source files and documentation.
 
 ### Changed
+- **PolyQuanta panel width**: Increased panel width from 12HP to 14HP and repositioned components for improved layout and usability.
 - **Core test build is Rack-SDK optional**: `make core_tests` now proxies to a standalone `tests/Makefile`, so headless test builds succeed even when `plugin.mk` is unavailable (Codex/CI containers).
+- **PolyQuanta header/implementation separation**: Created PolyQuanta.hpp header file and moved forward declarations and core includes from PolyQuanta.cpp to the header, following C++ best practices for cleaner code organization.
 
 ### Fixed
 - **PolyQuanta sync randomization precision**: Promoted the clock/multiplication timekeeping to double precision so long-running subdivisions keep firing on schedule.

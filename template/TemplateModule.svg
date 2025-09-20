@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="128" height="380" viewBox="0 0 128 380" xmlns="http://www.w3.org/2000/svg">
+  <!-- Template Module Panel - 4HP -->
+  <!-- This is a basic template panel. Replace with your custom design. -->
+  
+  <!-- Panel Background -->
+  <rect width="128" height="380" fill="#1a1a1a" stroke="#333" stroke-width="2"/>
+  
+  <!-- Title -->
+  <text x="64" y="20" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="12" font-weight="bold">TEMPLATE</text>
+  
+  <!-- Main Knob -->
+  <circle cx="64" cy="60" r="15" fill="#333" stroke="#666" stroke-width="1"/>
+  <circle cx="64" cy="60" r="12" fill="#555"/>
+  <circle cx="64" cy="60" r="2" fill="#fff"/>
+  
+  <!-- Button -->
+  <circle cx="64" cy="100" r="8" fill="#333" stroke="#666" stroke-width="1"/>
+  
+  <!-- LED -->
+  <circle cx="74" cy="120" r="3" fill="#333" stroke="#666" stroke-width="1"/>
+  
+  <!-- Input Jack -->
+  <circle cx="64" cy="160" r="6" fill="#333" stroke="#666" stroke-width="1"/>
+  <circle cx="64" cy="160" r="4" fill="#1a1a1a"/>
+  
+  <!-- Output Jack -->
+  <circle cx="64" cy="200" r="6" fill="#333" stroke="#666" stroke-width="1"/>
+  <circle cx="64" cy="200" r="4" fill="#1a1a1a"/>
+  
+  <!-- Labels -->
+  <text x="64" y="50" text-anchor="middle" fill="#ccc" font-family="Arial, sans-serif" font-size="8">KNOB</text>
+  <text x="64" y="90" text-anchor="middle" fill="#ccc" font-family="Arial, sans-serif" font-size="8">BUTTON</text>
+  <text x="64" y="150" text-anchor="middle" fill="#ccc" font-family="Arial, sans-serif" font-size="8">IN</text>
+  <text x="64" y="190" text-anchor="middle" fill="#ccc" font-family="Arial, sans-serif" font-size="8">OUT</text>
+  
+  <!-- Corner Screw Holes -->
+  <circle cx="8" cy="8" r="2" fill="#333" stroke="#666" stroke-width="1"/>
+  <circle cx="120" cy="8" r="2" fill="#333" stroke="#666" stroke-width="1"/>
+  <circle cx="8" cy="372" r="2" fill="#333" stroke="#666" stroke-width="1"/>
+  <circle cx="120" cy="372" r="2" fill="#333" stroke="#666" stroke-width="1"/>
+</svg>

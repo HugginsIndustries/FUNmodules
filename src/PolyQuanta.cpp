@@ -141,8 +141,11 @@
  * - Strum menu .................................................. ~4816–4861
  */
 
-// Include the main plugin header which provides access to VCV Rack's Module class and basic types
-#include "plugin.hpp"
+// -----------------------------------------------------------------------------
+// Includes
+// -----------------------------------------------------------------------------
+
+#include "PolyQuanta.hpp" // Include the main module header
 // Standard C++ library includes for various functionality:
 #include <cstdio>        // For C-style I/O functions like snprintf
 #include <cctype>        // For character classification functions like isdigit, tolower
@@ -156,39 +159,6 @@
 #include <string>        // For string manipulation
 #include <algorithm>     // For algorithms like min_element, sort, unique
 #include <cstdint>       // For fixed-width integer types like uint32_t
-// Core DSP functionality has been refactored into separate modules for better organization:
-// - hi::consts: Mathematical and audio constants (sample rates, voltage limits, etc.)
-// - hi::dsp::clip: Audio clipping/limiting functions (hard and soft clipping)
-// - hi::dsp::glide: Slew limiting and shape-aware glide algorithms
-// - hi::dsp::range: Range processing (clip vs scale modes around 0V)
-// - QuantConfig + snapEDO: Quantization configuration and EDO snapping functions
-#include "core/PolyQuantaCore.hpp"
-// Centralized musical scale definitions for Equal Division of Octave (EDO) systems
-// Contains predefined scale masks for 12-EDO (standard Western) and 24-EDO (quarter-tone)
-#include "core/ScaleDefs.hpp"
-// Curated presets for Equal Division of Octave (EDO) and Temperament (TET) systems
-// Provides collections of musically useful tuning systems with descriptions
-#include "core/EdoTetPresets.hpp"
-// Strum timing functionality for creating delays between polyphonic channels
-// Supports up/down/random strum patterns with time-stretch or start-delay modes
-#include "core/Strum.hpp"
-// UI quantity classes for parameter display and input parsing:
-// - ExpTimeQuantity: Exponential time scaling for slew parameters (ms/seconds)
-// - SemitoneVoltQuantity: Dual-mode display (volts or semitones) for offset parameters
-// - ShapeQuantity: Display formatting for slew curve shape parameters
-#include "core/ui/Quantities.hpp"
-// UI menu helper functions for creating consistent context menus
-// Provides utilities for adding sections, boolean toggles, and submenu items
-#include "core/ui/MenuHelpers.hpp"
-// Panel export functionality for generating SVG snapshots of the module layout
-// Includes both the background panel artwork and approximations of UI components
-// Used for documentation and layout verification
-#include "core/PanelExport.hpp"
-
-// Forward declaration of the main module class
-// This allows MOS (Moment of Symmetry) helper functions to reference the module
-// without requiring the full class definition at this point
-class PolyQuanta; // Full definition appears later in this file
 
 // -----------------------------------------------------------------------------
 // Inline helpers
