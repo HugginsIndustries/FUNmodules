@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 - Extended pq core tests to cover range conditioning, clip limit bounds, glide shaping, and strum deterministic span expectations.
 - **Module Template**: Complete template package for creating new VCV Rack 2 modules based on PolyQuanta architecture, including source files and documentation.
+- **MOS Generator Presets**: Added comprehensive MOS (Moment of Symmetry) generator presets for all EDO options from 5 to 120 with mathematically correct generators for optimal scale generation in microtonal tuning systems.
 
 ### Changed
 - **PolyQuanta panel width**: Increased panel width from 12HP to 14HP and repositioned components for improved layout and usability.
