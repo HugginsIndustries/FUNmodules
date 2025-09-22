@@ -15,31 +15,12 @@ static inline int _modWrap(int x, int m) {
 // FIX: mask check in pitch-class space relative to root (always follows root)
 static inline bool _isAllowedStepRootRel(int step, const QuantConfig& qc) {
   const int edo = (qc.edo > 0 ? qc.edo : 12);
-  const int rootShift = qc.root; // Always follow selected root for BOTH built-in tables and custom masks.
+  const int rootShift = qc.root; // Always follow selected root for custom masks
   const int pcRel = _modWrap(step - rootShift, edo);
-  // Custom mask path
-  if (qc.useCustom) {
-    if (edo == 12) return ((qc.customMask12 >> pcRel) & 1u) != 0u;
-    if (edo == 24) return ((qc.customMask24 >> pcRel) & 1u) != 0u;
-    if (qc.customMaskGeneric && qc.customMaskLen == edo) return qc.customMaskGeneric[pcRel] != 0;
-    return true; // no custom mask set ⇒ chromatic
-  }
-  // BUILT-IN SCALE path via ScaleDefs
-  if (edo == 12) {
-    const auto* scales = hi::music::scales12();
-    if (qc.scaleIndex >= 0 && qc.scaleIndex < hi::music::NUM_SCALES12) {
-      uint32_t mask12 = scales[qc.scaleIndex].mask;
-      return ((mask12 >> pcRel) & 1u) != 0u;
-    }
-  }
-  if (edo == 24) {
-    const auto* scales = hi::music::scales24();
-    if (qc.scaleIndex >= 0 && qc.scaleIndex < hi::music::NUM_SCALES24) {
-      uint32_t mask24 = scales[qc.scaleIndex].mask;
-      return ((mask24 >> pcRel) & 1u) != 0u;
-    }
-  }
-  return true;
+  
+  // Always use custom mask path (unified scale selection)
+  if (qc.customMaskGeneric && qc.customMaskLen == edo) return qc.customMaskGeneric[pcRel] != 0;
+  return true; // no custom mask set ⇒ chromatic
 }
 
 // FIX: strictly choose nearest ALLOWED degree (never chromatic)
@@ -112,20 +93,23 @@ float snapEDO(float volts, const QuantConfig& qc, float boundLimit, bool boundTo
 }
 // Return whether pitch-class step s is allowed under qc (root/mask aware)
 bool isAllowedStep(int s, const QuantConfig& qc) {
-    int N = (qc.edo <= 0) ? 12 : qc.edo; if (N <= 0) return true; float period = (qc.periodOct > 0.f) ? qc.periodOct : 1.f; (void)period;
-    int root = qc.root % N; if (root < 0) root += N;
-    auto allowedPc = [&](int pc)->bool {
-        if (!qc.useCustom) {
-            if (N == 12) { const auto* S = hi::music::scales12(); int idx = (qc.scaleIndex >= 0 && qc.scaleIndex < hi::music::NUM_SCALES12) ? qc.scaleIndex : 0; unsigned int base = S[idx].mask; int idxBit = (pc - root) % N; if (idxBit < 0) idxBit += N; return ((base >> idxBit) & 1u) != 0u; }
-            else if (N == 24) { const auto* S = hi::music::scales24(); int idx = (qc.scaleIndex >= 0 && qc.scaleIndex < hi::music::NUM_SCALES24) ? qc.scaleIndex : 0; unsigned int base = S[idx].mask; int idxBit = (pc - root) % N; if (idxBit < 0) idxBit += N; return ((base >> idxBit) & 1u) != 0u; }
-            return true;
-        } else {
-            if (N == 12) { unsigned int base = qc.customMask12; if (qc.customFollowsRoot) { int idxBit = (pc - root) % N; if (idxBit < 0) idxBit += N; return ((base >> idxBit) & 1u) != 0u; } return ((base >> pc) & 1u) != 0u; }
-            else if (N == 24) { unsigned int base = qc.customMask24; if (qc.customFollowsRoot) { int idxBit = (pc - root) % N; if (idxBit < 0) idxBit += N; return ((base >> idxBit) & 1u) != 0u; } return ((base >> pc) & 1u) != 0u; }
-            else { if (!qc.customMaskGeneric || qc.customMaskLen < N) { return true; } int idxBit = qc.customFollowsRoot ? ((pc - root) % N) : pc; if (idxBit < 0) idxBit += N; uint8_t bit = qc.customMaskGeneric[idxBit]; return bit != 0; }
-        }
-    };
-    int pc = s % N; if (pc < 0) pc += N; return allowedPc(pc);
+    int N = (qc.edo <= 0) ? 12 : qc.edo; 
+    if (N <= 0) return true; 
+    
+    int root = qc.root % N; 
+    if (root < 0) root += N;
+    
+    int pc = s % N; 
+    if (pc < 0) pc += N;
+    
+    int idxBit = (pc - root) % N; 
+    if (idxBit < 0) idxBit += N;
+    
+    // Always use custom mask path (unified scale selection)
+    if (!qc.customMaskGeneric || qc.customMaskLen < N) {
+        return true; // no custom mask set ⇒ chromatic
+    }
+    return qc.customMaskGeneric[idxBit] != 0;
 }
 int nextAllowedStep(int start, int dir, const QuantConfig& qc) {
     int N = (qc.edo <= 0) ? 12 : qc.edo; if (N <= 0) return start; if (dir == 0) return start; // invalid dir
@@ -169,23 +153,23 @@ int nearestAllowedStepWithHistory(int sGuess, float fs, const QuantConfig& qc, i
 // -----------------------------------------------------------------------------
 namespace hi { namespace music { namespace mos {
 const std::map<int, std::vector<int>> curated = {
-    {5,{3,5}}, {6,{3,4,6}}, {7,{5,7}}, {8,{4,6,8}}, {9,{5,7,9}}, {10,{5,7,8,10}}, {11,{5,7,9,11}},
-    {12,{5,7,6,8}}, {13,{7,9,11,13}}, {14,{7,9,12}}, {15,{1,2,4,7}}, {16,{5,7,8,10}}, {17,{5,7,9,10}}, {18,{5,6,9,12}},
-    {19,{7,9,10}}, {20,{5,8,10,12}}, {21,{1,2,4,5}}, {22,{7,9,11}}, {23,{1,2,3,4}}, {24,{5,6,7,8}}, {25,{5,8,10,12}},
-    {26,{7,9,11}}, {27,{1,2,4,5}}, {28,{1,3,5,9}}, {29,{1,2,3,4}}, {30,{1,7,11,13}}, {31,{7,9,11}}, {32,{1,3,5,7}},
-    {33,{1,2,4,5}}, {34,{7,9,12}}, {35,{1,2,3,4}}, {36,{6,9,12}}, {37,{1,2,3,4}}, {38,{7,9,12}}, {39,{1,2,4,5}},
-    {40,{1,3,7,9}}, {41,{7,9,11}}, {42,{1,5,11,13}}, {43,{7,9,11,13}}, {44,{9,11,13}}, {45,{1,2,4,7}}, {46,{1,3,5,7}},
-    {47,{1,2,3,4}}, {48,{6,8,12,16}}, {49,{1,2,3,4}}, {50,{5,8,10,12}}, {51,{1,2,4,5}}, {52,{7,9,13}}, {53,{7,9,11,13}},
-    {54,{1,5,7,11}}, {55,{1,2,3,4}}, {56,{1,3,5,9}}, {57,{1,2,4,5}}, {58,{1,3,5,7}}, {59,{1,2,3,4}}, {60,{5,6,10,12}},
-    {61,{1,2,3,4}}, {62,{7,9,12}}, {63,{1,2,4,5}}, {64,{7,8,12,16}}, {65,{1,2,3,4}}, {66,{1,5,7,13}}, {67,{1,2,3,4}},
-    {68,{1,3,5,7}}, {69,{1,2,4,5}}, {70,{1,3,9,11}}, {71,{1,2,3,4}}, {72,{6,8,9,12,18}}, {73,{1,2,3,4}}, {74,{1,3,5,7}},
+    {5,{1,2,3,4}}, {6,{1,5}}, {7,{1,2,3,4}}, {8,{1,3,5,7}}, {9,{1,2,4,5}}, {10,{1,3,7,9}}, {11,{1,2,3,4}},
+    {12,{1,5,7,11}}, {13,{1,2,3,4}}, {14,{1,3,5,9}}, {15,{1,2,4,7}}, {16,{1,3,5,7}}, {17,{1,2,3,4}}, {18,{1,5,7,11}},
+    {19,{1,2,3,4}}, {20,{1,3,7,9}}, {21,{1,2,4,5}}, {22,{1,3,5,7}}, {23,{1,2,3,4}}, {24,{1,5,7,11}}, {25,{1,2,3,4}},
+    {26,{1,3,5,7}}, {27,{1,2,4,5}}, {28,{1,3,5,9}}, {29,{1,2,3,4}}, {30,{1,7,11,13}}, {31,{1,2,3,4}}, {32,{1,3,5,7}},
+    {33,{1,2,4,5}}, {34,{1,3,5,7}}, {35,{1,2,3,4}}, {36,{1,5,7,11}}, {37,{1,2,3,4}}, {38,{1,3,5,7}}, {39,{1,2,4,5}},
+    {40,{1,3,7,9}}, {41,{1,2,3,4}}, {42,{1,5,11,13}}, {43,{1,2,3,4}}, {44,{1,3,5,7}}, {45,{1,2,4,7}}, {46,{1,3,5,7}},
+    {47,{1,2,3,4}}, {48,{1,5,7,11}}, {49,{1,2,3,4}}, {50,{1,3,7,9}}, {51,{1,2,4,5}}, {52,{1,3,5,7}}, {53,{1,2,3,4}},
+    {54,{1,5,7,11}}, {55,{1,2,3,4}}, {56,{1,3,5,9}}, {57,{1,2,4,5}}, {58,{1,3,5,7}}, {59,{1,2,3,4}}, {60,{1,7,11,13}},
+    {61,{1,2,3,4}}, {62,{1,3,5,7}}, {63,{1,2,4,5}}, {64,{1,3,5,7}}, {65,{1,2,3,4}}, {66,{1,5,7,13}}, {67,{1,2,3,4}},
+    {68,{1,3,5,7}}, {69,{1,2,4,5}}, {70,{1,3,9,11}}, {71,{1,2,3,4}}, {72,{1,5,7,11}}, {73,{1,2,3,4}}, {74,{1,3,5,7}},
     {75,{1,2,4,7}}, {76,{1,3,5,7}}, {77,{1,2,3,4}}, {78,{1,5,7,11}}, {79,{1,2,3,4}}, {80,{1,3,7,9}}, {81,{1,2,4,5}},
     {82,{1,3,5,7}}, {83,{1,2,3,4}}, {84,{1,5,11,13}}, {85,{1,2,3,4}}, {86,{1,3,5,7}}, {87,{1,2,4,5}}, {88,{1,3,5,7}},
     {89,{1,2,3,4}}, {90,{1,7,11,13}}, {91,{1,2,3,4}}, {92,{1,3,5,7}}, {93,{1,2,4,5}}, {94,{1,3,5,7}}, {95,{1,2,3,4}},
-    {96,{8,12,16,24}}, {97,{1,2,3,4}}, {98,{1,3,5,9}}, {99,{1,2,4,5}}, {100,{1,3,7,9}}, {101,{1,2,3,4}}, {102,{1,5,7,11}},
+    {96,{1,5,7,11}}, {97,{1,2,3,4}}, {98,{1,3,5,9}}, {99,{1,2,4,5}}, {100,{1,3,7,9}}, {101,{1,2,3,4}}, {102,{1,5,7,11}},
     {103,{1,2,3,4}}, {104,{1,3,5,7}}, {105,{1,2,4,8}}, {106,{1,3,5,7}}, {107,{1,2,3,4}}, {108,{1,5,7,11}}, {109,{1,2,3,4}},
     {110,{1,3,7,9}}, {111,{1,2,4,5}}, {112,{1,3,5,9}}, {113,{1,2,3,4}}, {114,{1,5,7,11}}, {115,{1,2,3,4}}, {116,{1,3,5,7}},
-    {117,{1,2,4,5}}, {118,{1,3,5,7}}, {119,{1,2,3,4}}, {120,{10,12,15,20}}
+    {117,{1,2,4,5}}, {118,{1,3,5,7}}, {119,{1,2,3,4}}, {120,{1,7,11,13}}
 };
 int gcdInt(int a, int b){ while(b){ int t=a%b; a=b; b=t;} return a<0?-a:a; }
 std::vector<int> generateCycle(int N, int g, int m){ std::vector<int> pcs; pcs.reserve(m); std::unordered_set<int> seen; for(int k=0;k<m;++k){ int v=((long long)k*g)%N; if(seen.insert(v).second) pcs.push_back(v); else break; } std::sort(pcs.begin(),pcs.end()); return pcs; }
@@ -376,10 +360,7 @@ void coreToJson(json_t* root, const CoreState& s) noexcept {
     json_object_set_new(root, "tetPeriodOct", json_real(s.tetPeriodOct));
     // Custom scale flags
     json_object_set_new(root, "useCustomScale", s.useCustomScale ? json_true() : json_false());
-    json_object_set_new(root, "rememberCustomScale", s.rememberCustomScale ? json_true() : json_false());
-    // Masks
-    json_object_set_new(root, "customMask12", json_integer(s.customMask12));
-    json_object_set_new(root, "customMask24", json_integer(s.customMask24));
+    // Custom mask
     if (!s.customMaskGeneric.empty()) {
         json_t* arr = json_array();
         for (size_t i = 0; i < s.customMaskGeneric.size(); ++i)
@@ -412,10 +393,7 @@ void coreFromJson(const json_t* root, CoreState& s) noexcept {
     getInt("edo", s.edo); getInt("tuningMode", s.tuningMode); getInt("tetSteps", s.tetSteps); getFloat("tetPeriodOct", s.tetPeriodOct);
     // Custom scale flags
     getBool("useCustomScale", s.useCustomScale);
-    getBool("rememberCustomScale", s.rememberCustomScale);
-    // Masks
-    if (auto* j = json_object_get(root, "customMask12")) if (json_is_integer(j)) s.customMask12 = (uint32_t)json_integer_value(j);
-    if (auto* j = json_object_get(root, "customMask24")) if (json_is_integer(j)) s.customMask24 = (uint32_t)json_integer_value(j);
+    // Custom mask
     s.customMaskGeneric.clear();
     if (auto* arr = json_object_get(root, "customMaskGeneric")) {
         if (json_is_array(arr)) {
@@ -530,7 +508,9 @@ int pqtests::run_core_tests() {
     {
         hi::dsp::QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 0;
         qc.useCustom = true; qc.customFollowsRoot = true;
-        qc.customMask12 = 0b010010101001; // FIX: C minor pentatonic {0,3,5,7,10}, LSB=pc0 (0x4A9, 1193)
+        // C minor pentatonic {0,3,5,7,10} - convert to vector format
+        qc.customMaskGeneric = new uint8_t[12]{1,0,0,1,0,1,0,1,0,0,1,0};
+        qc.customMaskLen = 12;
         // Build dense ramp 0→1 V (2000 steps) and verify all outputs are in {0,3,5,7,10} relative to root
         std::set<int> allowedPCs = {0,3,5,7,10}; // C minor pentatonic pitch classes
         for (int k = 0; k <= 2000; ++k) {
@@ -547,7 +527,9 @@ int pqtests::run_core_tests() {
     {
         hi::dsp::QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 1; // transpose mask so the octave boundary is disallowed
         qc.useCustom = true; qc.customFollowsRoot = true;
-        qc.customMask12 = 0b010010101001; // same C minor pentatonic mask, but root shift makes step 12 forbidden
+        // C minor pentatonic {0,3,5,7,10} - convert to vector format
+        qc.customMaskGeneric = new uint8_t[12]{1,0,0,1,0,1,0,1,0,0,1,0};
+        qc.customMaskLen = 12;
         const float boundLimit = 1.f; // ±1 V window → ±12 semitones
         const float stepsPerVolt = (float)qc.edo / qc.periodOct;
         float snappedHi = snapEDO(boundLimit, qc, boundLimit, true);
@@ -757,7 +739,9 @@ int pqtests::run_core_tests() {
 
         hi::dsp::QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 0;
         qc.useCustom = true; qc.customFollowsRoot = true;
-        qc.customMask12 = 0b010010101001; // C min pentatonic {0,3,5,7,10}
+        // C minor pentatonic {0,3,5,7,10} - convert to vector format
+        qc.customMaskGeneric = new uint8_t[12]{1,0,0,1,0,1,0,1,0,0,1,0};
+        qc.customMaskLen = 12;
         const float cents = 10.0f; // same as UI example
         const float Hs = (cents * (float)qc.edo) / 1200.0f;
         const float amp = Hs * 0.8f; // below threshold ⇒ must NOT switch
@@ -880,7 +864,9 @@ int pqtests::run_core_tests() {
     {
         hi::dsp::QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 0;
         qc.useCustom = true; qc.customFollowsRoot = true;
-        qc.customMask12 = 0b010010101001; // C min pentatonic {0,3,5,7,10}
+        // C minor pentatonic {0,3,5,7,10} - convert to vector format
+        qc.customMaskGeneric = new uint8_t[12]{1,0,0,1,0,1,0,1,0,0,1,0};
+        qc.customMaskLen = 12;
         const float cents = 10.0f;
         std::vector<int> outs;
         int last = 0;
@@ -902,7 +888,9 @@ int pqtests::run_core_tests() {
     {
         hi::dsp::QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 0;
         qc.useCustom = true; qc.customFollowsRoot = true;
-        qc.customMask12 = 0b010010101001; // C min pentatonic {0,3,5,7,10}
+        // C minor pentatonic {0,3,5,7,10} - convert to vector format
+        qc.customMaskGeneric = new uint8_t[12]{1,0,0,1,0,1,0,1,0,0,1,0};
+        qc.customMaskLen = 12;
         int last = 0;
         for (int k = 0; k < 2400; ++k) {
             const double pi = 3.14159265358979323846;
@@ -926,7 +914,9 @@ int pqtests::run_core_tests() {
     {
         hi::dsp::QuantConfig qc; qc.edo = 12; qc.periodOct = 1.f; qc.root = 0;
         qc.useCustom = true; qc.customFollowsRoot = true;
-        qc.customMask12 = 0b010010101001; // C min pentatonic
+        // C minor pentatonic {0,3,5,7,10} - convert to vector format
+        qc.customMaskGeneric = new uint8_t[12]{1,0,0,1,0,1,0,1,0,0,1,0};
+        qc.customMaskLen = 12;
         const float cents = 10.0f;
         const float Hs = (cents * (float)qc.edo) / 1200.0f;
         const float Hd = std::max(0.75f*Hs, 0.02f);

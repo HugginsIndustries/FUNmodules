@@ -182,6 +182,20 @@ namespace hi { namespace music { namespace mos {
     bool detectCurrentMOS(PolyQuanta* mod, int& mOut, int& gOut);
 } } }
 
+// Scale detection utilities
+namespace hi { namespace music { namespace scale {
+    // Detect if a custom scale matches any predefined scale for the given EDO
+    // customMask: the custom scale mask to check
+    // edo: the EDO system (1-120)
+    // Returns: pointer to matching scale, or nullptr if no match found
+    const Scale* detectMatchingScale(const std::vector<uint8_t>& customMask, int edo);
+    
+    // Check if two scale masks are equivalent (accounting for root note rotation)
+    // mask1, mask2: scale masks to compare
+    // Returns: true if masks represent the same scale (possibly rotated)
+    bool masksEqual(const std::vector<uint8_t>& mask1, const std::vector<uint8_t>& mask2);
+} } }
+
 // LED control utilities for bipolar (green/red) channel activity indicators
 namespace hi { namespace ui { namespace led {
 // Set brightness of bipolar LED pair based on positive/negative voltage
@@ -622,20 +636,14 @@ struct PolyQuanta : Module {
     // SCALE SYSTEM - Custom and predefined musical scales
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // Scale source selection
-    bool useCustomScale = false;             // false = use predefined scales, true = use custom mask
+    // Scale source selection (always use custom scales with unified selection)
+    bool useCustomScale = true;              // Always true - unified scale selection system
     
-    // Custom scale persistence behavior
-    bool rememberCustomScale = false;       // false = seed from current named scale when enabling custom
-                                            // true = preserve custom mask across EDO changes
+    // Scale mask preservation is now always enabled by default
     
 
 
-    // Custom scale storage for different EDO sizes
-    uint32_t customMask12 = 0xFFFu;         // 12-bit mask for 12-EDO (all chromatic notes enabled)
-    uint32_t customMask24 = 0xFFFFFFu;      // 24-bit mask for 24-EDO (all quarter-tone notes enabled)
-    
-    // Generic custom mask for arbitrary EDO sizes (not 12 or 24)
+    // Custom scale storage - unified vector-based system for all EDOs
     std::vector<uint8_t> customMaskGeneric; // Dynamic array: 0/1 flag per scale degree
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -673,17 +681,11 @@ struct PolyQuanta : Module {
             fnv1a(0xFFFFFFFFull);           // Standard marker for non-custom scales
             return h;
         }
-        if (N==12) {
-            fnv1a((uint64_t)customMask12);  // Hash 12-EDO mask bits
-        } else if (N==24) {
-            fnv1a((uint64_t)customMask24);  // Hash 24-EDO mask bits
-        } else {
-            // Hash generic mask for arbitrary EDO sizes
-            size_t len = customMaskGeneric.size();
-            for(size_t i=0;i<std::min<size_t>(len,(size_t)N);++i) 
-                fnv1a((uint64_t)(customMaskGeneric[i]&1));  // Hash each bit
-            fnv1a((uint64_t)len);           // Include mask length
-        }
+        // Hash custom mask for all EDO sizes using unified vector system
+        size_t len = customMaskGeneric.size();
+        for(size_t i=0;i<std::min<size_t>(len,(size_t)N);++i) 
+            fnv1a((uint64_t)(customMaskGeneric[i]&1));  // Hash each bit
+        fnv1a((uint64_t)len);               // Include mask length
         return h;
     }
 
@@ -792,8 +794,6 @@ struct PolyQuanta : Module {
     float prevTetPeriodOct = -999.f;         // Previous TET period size
     int prevTuningMode = -999;               // Previous tuning system mode
     bool prevUseCustomScale = false;         // Previous custom scale usage flag
-    uint32_t prevCustomMask12 = 0;           // Previous 12-EDO custom mask
-    uint32_t prevCustomMask24 = 0;           // Previous 24-EDO custom mask
 
     // ═══════════════════════════════════════════════════════════════════════════
     // PER-CHANNEL PROCESSING CONTROLS - Individual channel behavior modifiers
@@ -876,17 +876,15 @@ struct PolyQuanta : Module {
         qc.root = rootNote;                      // Current root note (scale degree 0)
         qc.useCustom = useCustomScale;           // Use custom mask vs. preset scales
         qc.customFollowsRoot = true;             // Custom scales always follow root transposition
-        qc.customMask12 = customMask12;          // 12-EDO custom scale bitmask
-        qc.customMask24 = customMask24;          // 24-EDO custom scale bitmask
         qc.scaleIndex = scaleIndex;              // Preset scale selection index
-        // Handle generic custom masks for arbitrary EDO sizes (not 12 or 24)
-        if (qc.useCustom && (qc.edo != 12 && qc.edo != 24)) {
-            // Validate generic mask size matches current EDO
+        // Handle custom masks for all EDO sizes using unified vector system
+        if (qc.useCustom) {
+            // Validate mask size matches current EDO
             if ((int)customMaskGeneric.size() == qc.edo) {
                 qc.customMaskGeneric = customMaskGeneric.data();    // Provide mask data pointer
                 qc.customMaskLen = (int)customMaskGeneric.size();   // Set mask length
             } else {
-                // Invalid or missing generic mask - disable custom scale
+                // Invalid or missing mask - disable custom scale
                 qc.customMaskGeneric = nullptr;                     // No mask data
                 qc.customMaskLen = 0;                               // Zero length
             }
@@ -2544,10 +2542,8 @@ struct PolyQuanta : Module {
                     }
                     qc.root = rootNote; 
                     qc.useCustom = useCustomScale; 
-                    qc.customMask12 = customMask12; 
-                    qc.customMask24 = customMask24; 
                     qc.scaleIndex = scaleIndex; 
-                    if (qc.useCustom && (qc.edo != 12 && qc.edo != 24)) { 
+                    if (qc.useCustom) { 
                         if ((int)customMaskGeneric.size() == qc.edo) { 
                             qc.customMaskGeneric = customMaskGeneric.data(); 
                             qc.customMaskLen = (int)customMaskGeneric.size(); 
@@ -2558,13 +2554,11 @@ struct PolyQuanta : Module {
                     bool cfgChanged = (prevRootNote != rootNote || prevScaleIndex != scaleIndex || 
                                       prevEdo != qc.edo || prevTetSteps != tetSteps || 
                                       prevTetPeriodOct != qc.periodOct || prevTuningMode != tuningMode || 
-                                      prevUseCustomScale != useCustomScale || 
-                                      prevCustomMask12 != customMask12 || prevCustomMask24 != customMask24); 
+                                      prevUseCustomScale != useCustomScale); 
                     if (cfgChanged) { 
                         for (int k = 0; k < 16; ++k) latchedInit[k] = false; // Reset all channels
                         prevRootNote = rootNote; prevScaleIndex = scaleIndex; prevEdo = qc.edo; 
                         prevTetSteps = tetSteps; prevTetPeriodOct = qc.periodOct; prevTuningMode = tuningMode; 
-                        prevCustomMask12 = customMask12; prevCustomMask24 = customMask24; 
                     }
                     
                     // ───────────────────────────────────────────────────────────────────────────────────
@@ -2757,10 +2751,8 @@ struct PolyQuanta : Module {
                     qc.root = rootNote; 
                     qc.useCustom = useCustomScale; 
                     qc.customFollowsRoot = true;                           // Always follow root in Post mode
-                    qc.customMask12 = customMask12; 
-                    qc.customMask24 = customMask24; 
                     qc.scaleIndex = scaleIndex;
-                    if (qc.useCustom && (qc.edo != 12 && qc.edo != 24)) {
+                    if (qc.useCustom) {
                         if ((int)customMaskGeneric.size() == qc.edo) { 
                             qc.customMaskGeneric = customMaskGeneric.data(); 
                             qc.customMaskLen = (int)customMaskGeneric.size(); 
@@ -2773,13 +2765,11 @@ struct PolyQuanta : Module {
                     bool cfgChanged = (prevRootNote != rootNote || prevScaleIndex != scaleIndex || 
                                       prevEdo != qc.edo || prevTetSteps != tetSteps || 
                                       prevTetPeriodOct != qc.periodOct || prevTuningMode != tuningMode || 
-                                      prevUseCustomScale != useCustomScale || 
-                                      prevCustomMask12 != customMask12 || prevCustomMask24 != customMask24); 
+                                      prevUseCustomScale != useCustomScale); 
                     if (cfgChanged) { 
                         for (int k = 0; k < 16; ++k) latchedInit[k] = false; // Reset all channels
                         prevRootNote = rootNote; prevScaleIndex = scaleIndex; prevEdo = qc.edo; 
                         prevTetSteps = tetSteps; prevTetPeriodOct = qc.periodOct; prevTuningMode = tuningMode; 
-                        prevCustomMask12 = customMask12; prevCustomMask24 = customMask24; 
                     }
                     
                     // Step calculation and latched state initialization
@@ -3068,10 +3058,7 @@ static void fillCoreStateFromModule(const PolyQuanta& m, hi::dsp::CoreState& cs)
     // Custom Scale Configuration
     // ───────────────────────────────────────────────────────────────────────────────────────
     cs.useCustomScale = m.useCustomScale;                            // Enable custom scale mode
-    cs.rememberCustomScale = m.rememberCustomScale;                  // Persist custom scales
-    cs.customMask12 = m.customMask12;                                // 12-EDO custom scale bitmask
-    cs.customMask24 = m.customMask24;                                // 24-EDO custom scale bitmask
-    cs.customMaskGeneric = m.customMaskGeneric;                      // Generic EDO custom scale mask
+    cs.customMaskGeneric = m.customMaskGeneric;                      // Custom scale mask for all EDOs
     
     // ───────────────────────────────────────────────────────────────────────────────────────
     // Per-Channel Quantization Settings
@@ -3113,10 +3100,7 @@ static void applyCoreStateToModule(const hi::dsp::CoreState& cs, PolyQuanta& m) 
     // Custom Scale Configuration Restoration
     // ───────────────────────────────────────────────────────────────────────────────────────
     m.useCustomScale = cs.useCustomScale;                            // Restore custom scale mode
-    m.rememberCustomScale = cs.rememberCustomScale;                  // Restore persistence setting
-    m.customMask12 = cs.customMask12;                                // Restore 12-EDO scale mask
-    m.customMask24 = cs.customMask24;                                // Restore 24-EDO scale mask
-    m.customMaskGeneric = cs.customMaskGeneric;                      // Restore generic scale mask (vector copy)
+    m.customMaskGeneric = cs.customMaskGeneric;                      // Restore custom scale mask (vector copy)
     
     // ───────────────────────────────────────────────────────────────────────────────────────
     // Per-Channel Settings Restoration
@@ -3207,28 +3191,17 @@ namespace hi { namespace music { namespace mos {
     void buildMaskFromCycle(PolyQuanta* mod, int N, const std::vector<int>& pcs){
         if(!mod || N <= 0) return;                                    // Validate inputs
         
-        // Initialize appropriate mask based on tuning system
-        if(N == 12) 
-            mod->customMask12 = 0u;                                   // Clear 12-EDO bitmask
-        else if(N == 24) 
-            mod->customMask24 = 0u;                                   // Clear 24-EDO bitmask
-        else 
-            mod->customMaskGeneric.assign(N, 0);                      // Clear generic mask array
+        // Initialize mask for all EDO sizes using unified vector system
+        mod->customMaskGeneric.assign(N, 0);                          // Clear mask array
         
         // Set bits for each pitch class in the scale
         for(int p : pcs){
             if(p < 0 || p >= N) continue;                             // Skip invalid pitch classes
             int bit = p;                                              // Root-relative pitch class
-            // Set the appropriate bit in the corresponding mask
-            if(N == 12) 
-                mod->customMask12 |= (1u << bit);                         // Set bit in 12-EDO mask
-            else if(N == 24) 
-                mod->customMask24 |= (1u << bit);                         // Set bit in 24-EDO mask
-            else {
-                if((int)mod->customMaskGeneric.size() != N) 
-                    mod->customMaskGeneric.assign(N, 0);                  // Ensure correct size
-                mod->customMaskGeneric[(size_t)bit] = 1;                  // Set bit in generic mask
-            }
+            // Set the bit in the unified vector mask
+            if((int)mod->customMaskGeneric.size() != N) 
+                mod->customMaskGeneric.assign(N, 0);                      // Ensure correct size
+            mod->customMaskGeneric[(size_t)bit] = 1;                      // Set bit in mask
         }
     }
     
@@ -3294,19 +3267,10 @@ namespace hi { namespace music { namespace mos {
         pcs.reserve(32);                                                 // Reserve space for efficiency
         
         // Extract pitch classes from appropriate mask based on tuning system
-        if(N == 12){ 
-            for(int i = 0; i < 12; ++i) 
-                if((mod->customMask12 >> i) & 1u) pcs.push_back(i);     // Extract from 12-EDO mask
-        }
-        else if(N == 24){ 
-            for(int i = 0; i < 24; ++i) 
-                if((mod->customMask24 >> i) & 1u) pcs.push_back(i);     // Extract from 24-EDO mask
-        }
-        else { 
-            if((int)mod->customMaskGeneric.size() != N) return false;    // Validate generic mask size
-            for(int i = 0; i < N; ++i) 
-                if(mod->customMaskGeneric[(size_t)i]) pcs.push_back(i);  // Extract from generic mask
-        }
+        // Extract pitch classes from unified vector mask
+        if((int)mod->customMaskGeneric.size() != N) return false;        // Validate mask size
+        for(int i = 0; i < N; ++i) 
+            if(mod->customMaskGeneric[(size_t)i]) pcs.push_back(i);      // Extract from mask
         
         // Validate pitch class count (must be reasonable for MOS detection)
         if(pcs.size() < 2 || pcs.size() > 24) return false;
@@ -3345,6 +3309,81 @@ namespace hi { namespace music { namespace mos {
         }
         // No MOS pattern found - return false (cache already updated)
         return false;
+    }
+} } }
+
+// Scale detection function implementations
+namespace hi { namespace music { namespace scale {
+    /**
+     * @brief Check if two scale masks are equivalent (accounting for root note rotation)
+     * @param mask1 First scale mask to compare
+     * @param mask2 Second scale mask to compare
+     * @return true if masks represent the same scale (possibly rotated), false otherwise
+     */
+    bool masksEqual(const std::vector<uint8_t>& mask1, const std::vector<uint8_t>& mask2) {
+        if (mask1.size() != mask2.size()) return false;
+        if (mask1.empty()) return true;
+        
+        int N = (int)mask1.size();
+        
+        // Normalize both masks to canonical form (root at position 0)
+        auto normalizeMask = [N](const std::vector<uint8_t>& mask) -> std::vector<uint8_t> {
+            std::vector<uint8_t> normalized(N, 0);
+            
+            // Find the first active note (root) in the mask
+            int rootOffset = 0;
+            for (int i = 0; i < N; ++i) {
+                if (mask[i] != 0) {
+                    rootOffset = i;
+                    break;
+                }
+            }
+            
+            // Rotate the mask so that the root is at position 0
+            for (int i = 0; i < N; ++i) {
+                int sourceIndex = (i + rootOffset) % N;
+                normalized[i] = mask[sourceIndex];
+            }
+            
+            return normalized;
+        };
+        
+        std::vector<uint8_t> norm1 = normalizeMask(mask1);
+        std::vector<uint8_t> norm2 = normalizeMask(mask2);
+        
+        // Compare normalized masks
+        for (int i = 0; i < N; ++i) {
+            if (norm1[i] != norm2[i]) {
+                return false;
+            }
+        }
+        
+        return true;
+    }
+    
+    /**
+     * @brief Detect if a custom scale matches any predefined scale for the given EDO
+     * @param customMask The custom scale mask to check
+     * @param edo The EDO system (1-120)
+     * @return Pointer to matching scale, or nullptr if no match found
+     */
+    const Scale* detectMatchingScale(const std::vector<uint8_t>& customMask, int edo) {
+        if (customMask.empty() || edo < 1 || edo > 120) return nullptr;
+        
+        // Get the predefined scales for this EDO
+        const Scale* scales = scalesEDO(edo);
+        int numScales = numScalesEDO(edo);
+        
+        if (!scales || numScales <= 0) return nullptr;
+        
+        // Check each predefined scale for a match
+        for (int i = 0; i < numScales; ++i) {
+            if (masksEqual(customMask, scales[i].mask)) {
+                return &scales[i];
+            }
+        }
+        
+        return nullptr;
     }
 } } }
 
@@ -4107,8 +4146,43 @@ struct PolyQuantaWidget : ModuleWidget {
                     int rn = (m->rootNote % 12 + 12) % 12;
                     rootStr = noteNames[rn];
                 } else {
-                    // Other tuning systems: use numeric step notation
-                    rootStr = rack::string::f("%d", (m->rootNote % std::max(1, steps) + std::max(1, steps)) % std::max(1, steps));
+                    // Other tuning systems: use numeric step notation with 12-EDO approximations when close
+                    static const char* noteNames[12] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+                    int root = (m->rootNote % std::max(1, steps) + std::max(1, steps)) % std::max(1, steps);
+                    
+                    // Calculate 12-EDO pitch class approximation (same logic as root menu)
+                    float period = (m->tuningMode == 0) ? 1.f : 
+                        ((m->tetPeriodOct > 0.f) ? m->tetPeriodOct : std::log2(3.f/2.f));
+                    float semis = (float)root * 12.f * period / (float)steps;
+                    int nearestPc = (int)std::round(semis);
+                    float delta = semis - (float)nearestPc;
+                    float err = std::fabs(delta);
+                    
+                    // Check for exact match (EDO systems divisible by 12)
+                    bool exact = false;
+                    if (m->tuningMode == 0 && (steps % 12) == 0) {
+                        int stepPerSemi = steps / 12;
+                        exact = (root % stepPerSemi) == 0;
+                    } else {
+                        exact = err <= 1e-6f;
+                    }
+                    
+                    // Generate label based on pitch-class proximity (5-cent tolerance)
+                    int pc12 = ((nearestPc % 12) + 12) % 12;
+                    if (exact) {
+                        // Exact match: show note name only
+                        rootStr = noteNames[pc12];
+                    } else if (err <= 0.05f) {
+                        // Close approximation (within 5 cents): show note name with cents
+                        int cents = (int)std::round(delta * 100.f);
+                        if (cents != 0) 
+                            rootStr = rack::string::f("%s %+d¢", noteNames[pc12], cents);
+                        else 
+                            rootStr = noteNames[pc12];
+                    } else {
+                        // Distant approximation: show only step number
+                        rootStr = rack::string::f("%d", root);
+                    }
                 }
                 
                 // ───────────────────────────────────────────────────────────────────────────────────────
@@ -4117,14 +4191,22 @@ struct PolyQuantaWidget : ModuleWidget {
                 std::string scaleStr;
                 if (m->tuningMode == 0 && steps == 12 && !m->useCustomScale) {
                     // 12-EDO preset scales
-                    int idx = (m->scaleIndex >= 0 && m->scaleIndex < hi::music::NUM_SCALES12) ? m->scaleIndex : 0;
-                    scaleStr = hi::music::scales12()[idx].name;
+                    int idx = (m->scaleIndex >= 0 && m->scaleIndex < hi::music::NUM_SCALES_12EDO) ? m->scaleIndex : 0;
+                    scaleStr = hi::music::scales12EDO()[idx].name;
                 } else if (m->tuningMode == 0 && steps == 24 && !m->useCustomScale) {
                     // 24-EDO preset scales
-                    int idx = (m->scaleIndex >= 0 && m->scaleIndex < hi::music::NUM_SCALES24) ? m->scaleIndex : 0;
-                    scaleStr = hi::music::scales24()[idx].name;
+                    int idx = (m->scaleIndex >= 0 && m->scaleIndex < hi::music::NUM_SCALES_24EDO) ? m->scaleIndex : 0;
+                    scaleStr = hi::music::scales24EDO()[idx].name;
+                } else if (m->useCustomScale) {
+                    // Custom scale - try to detect if it matches a predefined scale
+                    const hi::music::Scale* matchingScale = hi::music::scale::detectMatchingScale(m->customMaskGeneric, steps);
+                    if (matchingScale) {
+                        scaleStr = matchingScale->name;
+                    } else {
+                        scaleStr = "Custom";
+                    }
                 } else {
-                    // Custom scale or non-standard tuning
+                    // Non-standard tuning without custom scale
                     scaleStr = "Custom";
                 }
                 
@@ -4186,39 +4268,18 @@ struct PolyQuantaWidget : ModuleWidget {
                 // These functions preserve the current custom scale mask when changing EDO divisions
                 auto readMask = [m](int Nsrc) {
                     std::vector<uint8_t> out;
-                    if (Nsrc == 12) {
-                        out.assign(12, 0);
-                        for (int i = 0; i < 12; ++i) 
-                            out[(size_t)i] = ((m->customMask12 >> i) & 1u) ? 1 : 0;
-                    } else if (Nsrc == 24) {
-                        out.assign(24, 0);
-                        for (int i = 0; i < 24; ++i) 
-                            out[(size_t)i] = ((m->customMask24 >> i) & 1u) ? 1 : 0;
-                    } else {
-                        out = m->customMaskGeneric;
-                        if ((int)out.size() != Nsrc) out.assign((size_t)Nsrc, 0);
+                    // All EDOs now use the generic vector-based mask system
+                    out = m->customMaskGeneric;
+                    if ((int)out.size() != Nsrc) {
+                        out.assign((size_t)Nsrc, 0);
                     }
                     return out;
                 };
                 
                 auto writeMask = [m](int Ndst, const std::vector<uint8_t>& in) {
-                    if (Ndst == 12) {
-                        // Pack 12-EDO mask into 32-bit integer
-                        uint32_t m12 = 0u; 
-                        for (int i = 0; i < 12 && i < (int)in.size(); ++i) 
-                            if (in[(size_t)i]) m12 |= (1u << i);
-                        m->customMask12 = m12;
-                    } else if (Ndst == 24) {
-                        // Pack 24-EDO mask into 32-bit integer
-                        uint32_t m24 = 0u; 
-                        for (int i = 0; i < 24 && i < (int)in.size(); ++i) 
-                            if (in[(size_t)i]) m24 |= (1u << i);
-                        m->customMask24 = m24;
-                    } else {
-                        // Store generic EDO mask as vector
-                        m->customMaskGeneric = in;
-                        m->customMaskGeneric.resize((size_t)Ndst, 0);
-                    }
+                    // All EDOs now use the generic vector-based mask system
+                    m->customMaskGeneric = in;
+                    m->customMaskGeneric.resize((size_t)Ndst, 0);
                 };
                 auto resampleMask = [](const std::vector<uint8_t>& src, int Ndst) {
                     std::vector<uint8_t> dst((size_t)Ndst, 0);
@@ -4298,10 +4359,9 @@ struct PolyQuantaWidget : ModuleWidget {
                             int oldEDO  = std::max(1, m->edo);
                             int oldRoot = (m->rootNote % oldEDO + oldEDO) % oldEDO;
                             
-                            // Preserve custom scale mask if enabled and remembering
+                            // Always preserve custom scale mask when changing EDO
                             std::vector<uint8_t> src;
-                            bool keepMask = (m->useCustomScale && m->rememberCustomScale);
-                            if (keepMask) src = readMask(oldEDO);
+                            if (m->useCustomScale) src = readMask(oldEDO);
                             
                             // Apply EDO change
                             m->tuningMode = 0;
@@ -4312,7 +4372,7 @@ struct PolyQuantaWidget : ModuleWidget {
                             m->rootNote = (newRoot % e + e) % e;
                             
                             // Resample and restore custom scale mask if needed
-                            if (keepMask) {
+                            if (!src.empty()) {
                                 auto dst = resampleMask(src, e);
                                 writeMask(e, dst);
                             }
@@ -4338,13 +4398,12 @@ struct PolyQuantaWidget : ModuleWidget {
                                 int oldEDO  = std::max(1, m->edo);
                                 int oldRoot = (m->rootNote % oldEDO + oldEDO) % oldEDO;
                                 std::vector<uint8_t> src;
-                                bool keepMask = (m->useCustomScale && m->rememberCustomScale);
-                                if (keepMask) src = readMask(oldEDO);
+                                if (m->useCustomScale) src = readMask(oldEDO);
                                 m->tuningMode = 0;
                                 m->edo = e;
                                 int newRoot = (int)std::round((double)oldRoot * (double)e / (double)oldEDO);
                                 m->rootNote = (newRoot % e + e) % e;
-                                if (keepMask) {
+                                if (!src.empty()) {
                                     auto dst = resampleMask(src, e);
                                     writeMask(e, dst);
                                 }
@@ -4461,224 +4520,218 @@ struct PolyQuantaWidget : ModuleWidget {
             // ───────────────────────────────────────────────────────────────────────────────────────
             // Scale Selection and Custom Degrees Editor
             // ───────────────────────────────────────────────────────────────────────────────────────
-            menu->addChild(rack::createSubmenuItem("Scale / Custom", "", [m](rack::ui::Menu* sm) {
+            menu->addChild(rack::createSubmenuItem("Scale", "", [m](rack::ui::Menu* sm) {
                 
-                // ───────────────────────────────────────────────────────────────────────────────────────
-                // Custom Scale Toggle with Intelligent Seeding
-                // ───────────────────────────────────────────────────────────────────────────────────────
-                // When turning ON custom scale and not remembering previous, seed from current named scale
-                sm->addChild(rack::createCheckMenuItem("Use custom scale", "", 
-                    [m]{ return m->useCustomScale; }, 
-                    [m]{
-                        bool was = m->useCustomScale;
-                        m->useCustomScale = !m->useCustomScale;
+                // Helper function to select a preset scale and enable custom mode
+                auto selectPresetScale = [m](const hi::music::Scale* scales, int scaleIndex, int scaleCount) {
+                    if (scaleIndex >= 0 && scaleIndex < scaleCount) {
+                        // Set the scale index
+                        m->scaleIndex = scaleIndex;
                         
-                        // Seed custom scale from current preset when first enabling
-                        if (!was && m->useCustomScale && !m->rememberCustomScale) {
-                            if (m->tuningMode == 0 && m->edo == 12) {
-                                // Seed 12-EDO custom scale from current preset
-                                int idx = (m->scaleIndex >= 0 && m->scaleIndex < hi::music::NUM_SCALES12) ? m->scaleIndex : 0;
-                                m->customMask12 = hi::music::scales12()[idx].mask;
-                            } else if (m->tuningMode == 0 && m->edo == 24) {
-                                // Seed 24-EDO custom scale from current preset
-                                int idx = (m->scaleIndex >= 0 && m->scaleIndex < hi::music::NUM_SCALES24) ? m->scaleIndex : 0;
-                                m->customMask24 = hi::music::scales24()[idx].mask;
-                            } else {
-                                // For arbitrary N (EDO != 12/24 or TET), seed generic mask (all degrees enabled)
+                        // Enable custom mode and seed with the selected scale
+                        m->useCustomScale = true;
+                        
+                        // Seed custom scale from selected preset
                                 int N = (m->tuningMode == 0 ? m->edo : m->tetSteps);
                                 if (N <= 0) N = 12;
-                                m->customMaskGeneric.assign((size_t)N, 1);
-                            }
+                        
+                        // Use vector mask directly for all EDO sizes
+                        // The core quantization logic handles root note transformation
+                        m->customMaskGeneric = scales[scaleIndex].mask;
+                        if ((int)m->customMaskGeneric.size() != N) {
+                            m->customMaskGeneric.resize((size_t)N, 0);
                         }
                         m->invalidateMOSCache();
-                    }));
-                
-                // ───────────────────────────────────────────────────────────────────────────────────────
-                // Custom Scale Memory Toggle
-                // ───────────────────────────────────────────────────────────────────────────────────────
-                sm->addChild(rack::createCheckMenuItem("Remember custom scale", "", 
-                    [m]{ return m->rememberCustomScale; }, 
-                    [m]{ m->rememberCustomScale = !m->rememberCustomScale; }));
-                
-                // ───────────────────────────────────────────────────────────────────────────────────────
-                // Preset Scale Selection (12-EDO and 24-EDO)
-                // ───────────────────────────────────────────────────────────────────────────────────────
-                // Note: Following the root is now always enabled for both built-in and custom scales
-                if (m->tuningMode == 0 && m->edo == 12 && !m->useCustomScale) {
-                    // 12-EDO preset scales
-                    for (int i = 0; i < hi::music::NUM_SCALES12; ++i) {
-                        sm->addChild(rack::createCheckMenuItem(hi::music::scales12()[i].name, "", 
-                            [m, i]{ return m->scaleIndex == i; }, 
-                            [m, i]{ m->scaleIndex = i; }));
                     }
-                } else if (m->tuningMode == 0 && m->edo == 24 && !m->useCustomScale) {
-                    // 24-EDO preset scales
-                    for (int i = 0; i < hi::music::NUM_SCALES24; ++i) {
-                        sm->addChild(rack::createCheckMenuItem(hi::music::scales24()[i].name, "", 
-                            [m, i]{ return m->scaleIndex == i; }, 
-                            [m, i]{ m->scaleIndex = i; }));
+                };
+                
+                // Helper function to add scale submenu with checkmarks for matching scales
+                auto addScaleSubmenu = [&](const char* category, const hi::music::Scale* scales, int count) {
+                    sm->addChild(rack::createSubmenuItem(category, "", [m, scales, count, selectPresetScale](rack::ui::Menu* smScales) {
+                        for (int i = 0; i < count; ++i) {
+                            // Check if this scale matches the current custom scale
+                            bool isMatching = false;
+                            if (m->useCustomScale) {
+                                const hi::music::Scale* matchingScale = hi::music::scale::detectMatchingScale(m->customMaskGeneric, m->tuningMode == 0 ? m->edo : m->tetSteps);
+                                isMatching = (matchingScale == &scales[i]);
+                            }
+                            
+                            smScales->addChild(rack::createCheckMenuItem(scales[i].name, "", 
+                                [isMatching]{ return isMatching; },
+                                [scales, i, count, selectPresetScale]{
+                                    selectPresetScale(scales, i, count);
+                                }));
+                        }
+                    }));
+                };
+                
+                // Show appropriate scales based on current tuning system
+                if (m->tuningMode == 0) {
+                    // EDO tuning systems
+                    int edo = m->edo;
+                    
+                    if (edo >= 1 && edo <= 120) {
+                        // All other EDOs 1-120 get chromatic scales
+                        std::string label = rack::string::f("%d-EDO Chords & Scales", edo);
+                        addScaleSubmenu(label.c_str(), hi::music::scalesEDO(edo), hi::music::numScalesEDO(edo));
                     }
                 } else {
-                    // ───────────────────────────────────────────────────────────────────────────────────────
-                    // MOS (Moment of Symmetry) Presets for Current EDO
-                    // ───────────────────────────────────────────────────────────────────────────────────────
+                    // TET tuning systems
+                    int steps = m->tetSteps;
+                    float period = m->tetPeriodOct;
+                    
+                    if (std::fabs(period - 1.0f) < 1e-6f) {
+                        // Octave-based systems
+                        if (steps == 12) {
+                            addScaleSubmenu("12-EDO Scales", hi::music::scales12EDO(), hi::music::NUM_SCALES_12EDO);
+                        } else if (steps == 24) {
+                            addScaleSubmenu("24-EDO Scales", hi::music::scales24EDO(), hi::music::NUM_SCALES_24EDO);
+                        } else if (steps == 7) {
+                            addScaleSubmenu("Just Intonation", hi::music::scales7EDO(), hi::music::NUM_SCALES_7EDO);
+                        } else if (steps == 22 || steps == 17 || steps == 5) {
+                            addScaleSubmenu("World Music", hi::music::scales5EDO(), hi::music::NUM_SCALES_5EDO);
+                        } else if (steps == 13 || steps == 16 || steps == 32) {
+                            addScaleSubmenu("Experimental", hi::music::scalesEDO(steps), hi::music::numScalesEDO(steps));
+                        }
+                    } else if (std::fabs(period - std::log2(3.f)) < 1e-6f) {
+                        // Bohlen-Pierce (tritave-based)
+                        addScaleSubmenu("Bohlen-Pierce", hi::music::scalesEDO(steps), hi::music::numScalesEDO(steps));
+                    } else if (std::fabs(period - std::log2(1.618f)) < 1e-6f) {
+                        // Golden Ratio based systems
+                        if (steps == 12) {
+                            addScaleSubmenu("Golden Ratio Scales", hi::music::scales12EDO(), hi::music::NUM_SCALES_12EDO);
+                        } else if (steps == 5 || steps == 8) {
+                            addScaleSubmenu("Fibonacci Scales", hi::music::scales5EDO(), hi::music::NUM_SCALES_5EDO);
+                } else {
+                            addScaleSubmenu("Golden Ratio Scales", hi::music::scalesEDO(steps), hi::music::numScalesEDO(steps));
+                        }
+                    } else {
+                        // Other TET systems
+                        addScaleSubmenu("Experimental", hi::music::scalesEDO(steps), hi::music::numScalesEDO(steps));
+                    }
+                }
+                
+                // MOS (Moment of Symmetry) Presets
                     sm->addChild(rack::createSubmenuItem("MOS presets (current EDO)", "", [m](rack::ui::Menu* smMos){
-                        if (m->tuningMode != 0) return;                            // Only available for EDO systems
-                        int N = std::max(1, m->edo);
+                    int N = (m->tuningMode == 0 ? m->edo : m->tetSteps);
+                    if (N <= 0) N = 12;
+                    
+                    // Get MOS generators for current EDO
                         auto it = hi::music::mos::curated.find(N);
-                        if (it == hi::music::mos::curated.end()) return;           // No MOS presets for this EDO
-                        
-                        for (int msz : it->second) {
-                            if (msz < 2) continue;                                  // Skip invalid MOS sizes
-                            int mClamped = std::min(std::min(msz, N), 24);
-                            std::string lbl = rack::string::f("%d notes", mClamped);
-                            smMos->addChild(rack::createSubmenuItem(lbl, "", [m, N, mClamped](rack::ui::Menu* smAdv){
-                                // ───────────────────────────────────────────────────────────────────────────────────────
-                                // MOS Generator Selection Submenu
-                                // ───────────────────────────────────────────────────────────────────────────────────────
-                                // Build generator choices only; do NOT modify scale until user selects
-                                smAdv->addChild(rack::createMenuLabel("Generators"));
-                                int bestG = hi::music::mos::findBestGenerator(N, mClamped);
+                    if (it != hi::music::mos::curated.end()) {
+                        const auto& gens = it->second;
+                        for (int g : gens) {
+                            // Create submenu for each generator
+                            std::string genLabel = rack::string::f("Generator %d", g);
+                            smMos->addChild(rack::createSubmenuItem(genLabel, "", [m, N, g](rack::ui::Menu* smGen){
+                                // Find the best generator for 7-note scales as reference
+                                int bestGen = hi::music::mos::findBestGenerator(N, 7);
                                 
-                                for (int gTest = 1; gTest < N; ++gTest) {
-                                    if (hi::music::mos::gcdInt(gTest, N) != 1) continue;   // Skip non-coprime generators
-                                    auto cyc = hi::music::mos::generateCycle(N, gTest, mClamped);
-                                    if ((int)cyc.size() != mClamped) continue;             // Skip if cycle doesn't match size
-                                    if (!hi::music::mos::isMOS(cyc, N)) continue;          // Skip non-MOS patterns
-                                    
-                                    // Generate pattern description and best generator indicator
-                                    std::string pat = hi::music::mos::patternLS(cyc, N);
-                                    bool isBest = (gTest == bestG);
-                                    std::string glabel = rack::string::f("gen %d %s%s", gTest, pat.c_str(), isBest ? " (best)" : "");
-                                    
-                                    // Create menu item to apply this MOS pattern
-                                    smAdv->addChild(rack::createMenuItem(glabel, "", [m, N, gTest, mClamped]{
-                                        auto cyc2 = hi::music::mos::generateCycle(N, gTest, mClamped);
-                                        m->useCustomScale = true;
-                                        hi::music::mos::buildMaskFromCycle(m, N, cyc2);
-                                        m->scaleIndex = 0;
-                                        m->invalidateMOSCache();
-                                    }));
+                                // Try different mode sizes (5-9 notes)
+                                for (int modeSize = 5; modeSize <= 9; modeSize++) {
+                                    auto cyc = hi::music::mos::generateCycle(N, g, modeSize);
+                                    if (cyc.size() >= 2 && hi::music::mos::isMOS(cyc, N)) {
+                                        std::string pattern = hi::music::mos::patternLS(cyc, N);
+                                        bool isBest = (g == bestGen && modeSize == 7);
+                                        std::string label = rack::string::f("%d-note (%s)%s", 
+                                            modeSize, pattern.c_str(), isBest ? " ★" : "");
+                                        
+                                        smGen->addChild(rack::createMenuItem(label, "", [m, N, g, modeSize]{
+                                            // Generate MOS scale with this generator and mode size
+                                            auto cyc = hi::music::mos::generateCycle(N, g, modeSize);
+                                            if (cyc.size() >= 2) {
+                                                // Convert to custom mask (stored in root-relative space)
+                                                m->customMaskGeneric.assign((size_t)N, 0);
+                                                
+                                                // The generateCycle creates a pattern starting from 0, which is perfect
+                                                // for root-relative storage. The core quantization logic will handle
+                                                // the root note transformation during quantization.
+                                                for (int pc : cyc) {
+                                                    if (pc >= 0 && pc < N) {
+                                                        m->customMaskGeneric[pc] = 1;
+                                                    }
+                                                }
+                                                m->useCustomScale = true;
+                                                m->invalidateMOSCache();
+                                            }
+                                        }));
+                                    }
+                                }
+                                
+                                if (smGen->children.empty()) {
+                                    smGen->addChild(rack::createMenuLabel("No valid MOS scales found"));
                                 }
                             }));
                         }
-                    }));
-
-                    // ───────────────────────────────────────────────────────────────────────────────────────
-                    // Quick Seeding from 12-EDO Scales for Multiples of 12
-                    // ───────────────────────────────────────────────────────────────────────────────────────
-                    // Allows seeding custom scales from standard 12-EDO scales while in EDOs that are
-                    // multiples of 12 and does not remove the degree selection menus, so users
-                    // can add extra notes afterward.
-                    // Places degrees at stepPerSemi * pc (root-relative).
-                    if (m->tuningMode == 0 && m->edo > 0 && (m->edo % 12) == 0) {
-                        sm->addChild(rack::createSubmenuItem(
-                            "Select 12-EDO scale", "",
-                            [m](rack::ui::Menu* sm12) {
-                                for (int i = 0; i < hi::music::NUM_SCALES12; ++i) {
-                                    const char* name = hi::music::scales12()[i].name;
-                                    sm12->addChild(rack::createMenuItem(name, "", [m, i]{
-                                        const int N = std::max(1, m->edo);
-                                        const uint32_t mask12 = hi::music::scales12()[i].mask;
-                                        
-                                        // Stay in custom mode, root-relative so in-between roots work
-                                        m->useCustomScale = true;
-                                        m->scaleIndex = i;                          // Remember which 12-EDO scale was chosen
-                                        
-                                        // Map 12-EDO scale to current EDO
-                                        if (N == 12) {
-                                            m->customMask12 = mask12;
-                                        } else if (N == 24) {
-                                            // Map to 24-EDO by doubling each semitone
-                                            uint32_t out = 0u;
-                                            for (int pc = 0; pc < 12; ++pc)
-                                                if ((mask12 >> pc) & 1u) out |= (1u << (pc * 2));
-                                            m->customMask24 = out;
-                                        } else {
-                                            // Map to arbitrary multiple of 12
-                                            const int k = N / 12;                  // Steps per semitone
-                                            m->customMaskGeneric.assign((size_t)N, 0);
-                                            for (int pc = 0; pc < 12; ++pc) {
-                                                if ((mask12 >> pc) & 1u) {
-                                                    int step = pc * k;
-                                                    if (step >= 0 && step < N) 
-                                                        m->customMaskGeneric[(size_t)step] = 1;
-                                                }
-                                            }
-                                        }
-                                        m->invalidateMOSCache();
-                                    }));
-                                }
-                            }
-                        ));
-                    }
-
-                    // ───────────────────────────────────────────────────────────────────────────────────────
-                    // Custom Scale Editing Helper Functions
-                    // ───────────────────────────────────────────────────────────────────────────────────────
-                    sm->addChild(rack::createMenuItem("Select All Notes", "", [m]{
-                        int N = std::max(1, (m->tuningMode == 0 ? m->edo : m->tetSteps));
-                        if (N == 12) 
-                            m->customMask12 = 0xFFFu;                           // All 12 bits set
-                        else if (N == 24) 
-                            m->customMask24 = 0xFFFFFFu;                        // All 24 bits set
-                        else 
-                            m->customMaskGeneric.assign((size_t)N, 1);          // All degrees enabled
-                        m->invalidateMOSCache();
-                    }));
-                    
-                    sm->addChild(rack::createMenuItem("Clear All Notes", "", [m]{
-                        int N = std::max(1, (m->tuningMode == 0 ? m->edo : m->tetSteps));
-                        if (N == 12) 
-                            m->customMask12 = 0u;                               // All 12 bits cleared
-                        else if (N == 24) 
-                            m->customMask24 = 0u;                               // All 24 bits cleared
-                        else 
-                            m->customMaskGeneric.assign((size_t)N, 0);          // All degrees disabled
-                        m->invalidateMOSCache();
-                    }));
-                    
-                    sm->addChild(rack::createMenuItem("Invert Selection", "", [m]{
-                        int N = std::max(1, (m->tuningMode == 0 ? m->edo : m->tetSteps));
-                        if (N == 12) 
-                            m->customMask12 = (~m->customMask12) & 0xFFFu;       // Invert 12 bits
-                        else if (N == 24) 
-                            m->customMask24 = (~m->customMask24) & 0xFFFFFFu;    // Invert 24 bits
-                        else {
-                            // Invert generic mask
-                            if ((int)m->customMaskGeneric.size() != N) 
-                                m->customMaskGeneric.assign((size_t)N, 0);
-                            for (int i = 0; i < N; ++i) 
-                                m->customMaskGeneric[(size_t)i] = m->customMaskGeneric[(size_t)i] ? 0 : 1;
+                    } else {
+                        smMos->addChild(rack::createMenuLabel("No MOS generators available"));
                         }
-                        m->invalidateMOSCache();
                     }));
+
+                // Helper function to get current custom mask
+                auto getCurrentMask = [m]() -> std::vector<uint8_t> {
+                    int N = (m->tuningMode == 0 ? m->edo : m->tetSteps);
+                    if (N <= 0) N = 12;
                     
-                    // ───────────────────────────────────────────────────────────────────────────────────────
+                    // Use unified vector mask for all EDO sizes
+                    if ((int)m->customMaskGeneric.size() != N) {
+                        m->customMaskGeneric.assign((size_t)N, 0);
+                    }
+                    return m->customMaskGeneric;
+                };
+                
+                // Helper function to set custom mask
+                auto setCurrentMask = [m](const std::vector<uint8_t>& mask) {
+                    int N = (m->tuningMode == 0 ? m->edo : m->tetSteps);
+                    if (N <= 0) N = 12;
+                    
+                    // Use vector mask directly for all EDO sizes
+                    m->customMaskGeneric = mask;
+                    if ((int)m->customMaskGeneric.size() != N) {
+                        m->customMaskGeneric.resize((size_t)N, 0);
+                    }
+                    m->useCustomScale = true;
+                        m->invalidateMOSCache();
+                };
+                
+                // Custom Scale Editor - Direct menu items
+                sm->addChild(rack::createMenuItem("Select All Notes", "", [m, setCurrentMask]{
+                    int N = (m->tuningMode == 0 ? m->edo : m->tetSteps);
+                    if (N <= 0) N = 12;
+                    std::vector<uint8_t> mask((size_t)N, 1);
+                    setCurrentMask(mask);
+                }));
+                
+                sm->addChild(rack::createMenuItem("Clear All Notes", "", [m, setCurrentMask]{
+                    int N = (m->tuningMode == 0 ? m->edo : m->tetSteps);
+                    if (N <= 0) N = 12;
+                    std::vector<uint8_t> mask((size_t)N, 0);
+                    setCurrentMask(mask);
+                }));
+                
+                sm->addChild(rack::createMenuItem("Invert Selection", "", [getCurrentMask, setCurrentMask]{
+                    auto mask = getCurrentMask();
+                    for (auto& bit : mask) {
+                        bit = 1 - bit;
+                    }
+                    setCurrentMask(mask);
+                }));
+                
                     // 12-EDO Alignment Helper (EDO Mode Only)
-                    // ───────────────────────────────────────────────────────────────────────────────────────
                     if (m->tuningMode == 0) {
-                        sm->addChild(rack::createMenuItem("Custom: Select aligned 12-EDO notes", "", [m]{
+                    sm->addChild(rack::createMenuItem("Select aligned 12-EDO notes", "", [m]{
                             int N = std::max(1, m->edo);
                             
                             // Helper function to set degree state in root-relative mask
                             auto setDeg = [&](int degAbs, bool on){
-                                // degAbs is absolute index 0..N-1
-                                // Store mask ROOT-RELATIVE: bit = (degAbs - root) mod N
-                                int bit = (((degAbs - m->rootNote) % N + N) % N); // store root-relative
-                                if (N == 12) {
-                                    if (on) m->customMask12 |= (1u << bit); else m->customMask12 &= ~(1u << bit);
-                                } else if (N == 24) {
-                                    if (on) m->customMask24 |= (1u << bit); else m->customMask24 &= ~(1u << bit);
-                                } else {
-                                    if ((int)m->customMaskGeneric.size() != N) m->customMaskGeneric.assign((size_t)N, 0);
-                                    m->customMaskGeneric[(size_t)bit] = on ? 1 : 0;
-                                }
+                            int bit = (((degAbs - m->rootNote) % N + N) % N);
+                                // Use unified vector mask for all EDO sizes
+                                if ((int)m->customMaskGeneric.size() != N) m->customMaskGeneric.assign((size_t)N, 0);
+                                m->customMaskGeneric[(size_t)bit] = on ? 1 : 0;
                             };
                             
                             // Apply alignment logic based on EDO type
                             if (N % 12 == 0) {
-                                // Multiples of 12 EDO: select degrees aligned to semitone boundaries
                                 int stepPerSemi = N / 12;
                                 for (int d = 0; d < N; ++d) {
                                     int n = ((m->rootNote + d) % N + N) % N;
@@ -4686,165 +4739,200 @@ struct PolyQuantaWidget : ModuleWidget {
                                     setDeg(n, aligned);
                                 }
                             } else {
-                                // Non-multiples: select degrees near semitone boundaries (within 5 cents)
                                 for (int d = 0; d < N; ++d) {
                                     int n = ((m->rootNote + d) % N + N) % N;
-                                    float semis = (float)n * 12.f / (float)N;
-                                    float nearest = std::round(semis);
-                                    float err = std::fabs(semis - nearest);
-                                    bool aligned = (err <= 0.05f);              // 5 cent tolerance
+                                float cents = 1200.0f * (float)d / (float)N;
+                                float semitoneCents = 100.0f * std::round(cents / 100.0f);
+                                bool aligned = std::fabs(cents - semitoneCents) < 5.0f;
                                     setDeg(n, aligned);
                                 }
                             }
+                        m->useCustomScale = true;
                             m->invalidateMOSCache();
                         }));
                     }
                     
-                    // ───────────────────────────────────────────────────────────────────────────────────────
-                    // Individual Degree Selection Interface
-                    // ───────────────────────────────────────────────────────────────────────────────────────
-                    sm->addChild(new MenuSeparator);
-                    sm->addChild(rack::createMenuLabel("Degrees"));
+                // Individual Degree Editor with proper division
+                sm->addChild(rack::createSubmenuItem("Degrees", "", [m, getCurrentMask, setCurrentMask](rack::ui::Menu* smDeg){
                     int N = (m->tuningMode == 0 ? m->edo : m->tetSteps);
-                    if (N <= 0) N = 1;
+                    if (N <= 0) N = 12;
                     
-                    // Helper function to add individual degree menu items
-                    auto addDegree = [m](rack::ui::Menu* menuDeg, int d){
-                        // Recompute N at call time so this works in submenus opened later
-                        int N = std::max(1, (m->tuningMode == 0 ? m->edo : m->tetSteps));
-                        std::string label;
+                    auto mask = getCurrentMask();
+                    if ((int)mask.size() != N) {
+                        mask.assign((size_t)N, 0);
+                        setCurrentMask(mask);
+                    }
+                    
+                    // Helper function to get note name for degree
+                    auto getNoteName = [](int deg, int root, int N, int displayIndex) -> std::string {
+                        const char* noteNames[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+                        // Calculate the actual pitch class relative to root
+                        int actualPC = (deg + root) % N;
+                        // Convert to 12-EDO equivalent for display
+                        float note12Float = (actualPC * 12.0f) / N;
+                        int note12 = (int)std::round(note12Float);
+                        if (note12 < 0) note12 += 12;
+                        note12 = note12 % 12;
                         
-                        // ───────────────────────────────────────────────────────────────────────────────────────
-                        // Smart Degree Labeling with 12-EDO Pitch-Class Names
-                        // ───────────────────────────────────────────────────────────────────────────────────────
-                        // Show 12-EDO pitch-class names when aligned
-                        // Aligned when (root + d) lands on a 12-EDO boundary for multiples of 12
-                        // otherwise, show nearest 12-EDO pitch (≈) within a small cents threshold
-                        static const char* noteNames12[12] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
-                        bool named = false;
+                        // Calculate cents deviation from 12-EDO
+                        float cents = (note12Float - note12) * 100.0f;
+                        if (cents > 50.0f) cents -= 100.0f;
+                        if (cents < -50.0f) cents += 100.0f;
                         
-                        // Degree labels are relative to Root so degree 1 = Root:
-                        // stepIndex = (root + d) % N, where d is zero-based (degreeNumber-1)
-                        float period = (m->tuningMode == 0) ? 1.f : 
-                            ((m->tetPeriodOct > 0.f) ? m->tetPeriodOct : std::log2(3.f/2.f));
-                        int stepIndex = ((m->rootNote + d) % N + N) % N;
-                        float semis = (float)stepIndex * 12.f * period / (float)N;    // Absolute fractional semitone index
-                        int nearestPc = (int)std::round(semis);
-                        float delta = semis - (float)nearestPc;                       // Deviation in semitones (±)
-                        float err = std::fabs(delta);
-                        bool exact = false;
-                        
-                        // Determine if this degree exactly matches a 12-EDO pitch class
-                        if (m->tuningMode == 0 && (N % 12 == 0)) {
-                            int stepPerSemi = N / 12;
-                            exact = (stepIndex % stepPerSemi) == 0;
-                        } else {
-                            exact = err <= 1e-6f;                                    // Unlikely unless semis hits integer exactly
-                        }
-                        
-                        // Generate appropriate label based on pitch-class proximity
-                        if (exact) {
-                            // Exact match: show degree number and note name
-                            int pc12 = ((nearestPc % 12) + 12) % 12;
-                            label = rack::string::f("%d (%s)", d + 1, noteNames12[pc12]);
-                            named = true;
-                        } else if (err <= 0.05f) {
-                            // Close approximation (within ~5 cents): show approximate with signed cents
-                            int pc12 = ((nearestPc % 12) + 12) % 12;
-                            int cents = (int)std::round(delta * 100.f);
-                            if (cents != 0) 
-                                label = rack::string::f("%d (≈%s %+d¢)", d + 1, noteNames12[pc12], cents);
-                            else 
-                                label = rack::string::f("%d (≈%s)", d + 1, noteNames12[pc12]);
-                            named = true;
-                        }
-                        if (!named) label = rack::string::f("%d", d + 1);
-                        
-                        // ───────────────────────────────────────────────────────────────────────────────────────
-                        // Create Degree Menu Item with State Checking and Toggle Logic
-                        // ───────────────────────────────────────────────────────────────────────────────────────
-                        menuDeg->addChild(rack::createCheckMenuItem(
-                            label,
-                            "",
-                            [m, d]{
-                                // Check current state of this degree
-                                int Nloc = std::max(1, (m->tuningMode == 0 ? m->edo : m->tetSteps));
-                                // Mask is stored ROOT-RELATIVE: degree d maps to bit d
-                                int bit = d;
-                                if (Nloc == 12) return ((m->customMask12 >> bit) & 1u) != 0u;
-                                if (Nloc == 24) return ((m->customMask24 >> bit) & 1u) != 0u;
-                                if ((int)m->customMaskGeneric.size() != Nloc) return false;
-                                return m->customMaskGeneric[(size_t)bit] != 0;
-                            },
-                            [m, d]{
-                                // Toggle this degree's state
-                                int Nloc = std::max(1, (m->tuningMode == 0 ? m->edo : m->tetSteps));
-                                // Mask is stored ROOT-RELATIVE: degree d maps to bit d
-                                int bit = d;
-                                if (Nloc == 12) 
-                                    m->customMask12 ^= (1u << bit);
-                                else if (Nloc == 24) 
-                                    m->customMask24 ^= (1u << bit);
-                                else {
-                                    if ((int)m->customMaskGeneric.size() != Nloc) 
-                                        m->customMaskGeneric.assign((size_t)Nloc, 0);
-                                    m->customMaskGeneric[(size_t)bit] = m->customMaskGeneric[(size_t)bit] ? 0 : 1;
-                                }
-                                m->invalidateMOSCache();
+                        // Only show notes within ±5 cents of 12-EDO
+                        if (std::abs(cents) <= 5.0f) {
+                            if (std::abs(cents) < 0.1f) {
+                                return rack::string::f("%d (%s)", displayIndex + 1, noteNames[note12]);
+                            } else {
+                                return rack::string::f("%d (%s %+.0f¢)", displayIndex + 1, noteNames[note12], cents);
                             }
-                        ));
+                        } else {
+                            // Show as microtonal degree without note name
+                            return rack::string::f("%d", displayIndex + 1);
+                        }
                     };
                     
-                    // ───────────────────────────────────────────────────────────────────────────────────────
-                    // Degree Range Organization (Similar to Root Note Organization)
-                    // ───────────────────────────────────────────────────────────────────────────────────────
-                    if (N <= 36) {
-                        // Small systems: show all degrees directly
-                        for (int d = 0; d < N; ++d) addDegree(sm, d);
-                    } else if (N <= 72) {
-                        // Medium systems: split into halves (keeps addDegree() labeling consistent)
-                        int half = (N % 2 == 1) ? ((N + 1) / 2) : (N / 2);
-                        int loStart = 0, loEnd = half - 1;
-                        int hiStart = half, hiEnd = N - 1;
-                        sm->addChild(rack::createSubmenuItem(
-                            rack::string::f("%d..%d", loStart + 1, loEnd + 1), "",
-                            [=](rack::ui::Menu* sm2){
-                                for (int d = loStart; d <= loEnd; ++d) addDegree(sm2, d);
-                            }));
-                        sm->addChild(rack::createSubmenuItem(
-                            rack::string::f("%d..%d", hiStart + 1, hiEnd + 1), "",
-                            [=](rack::ui::Menu* sm2){
-                                for (int d = hiStart; d <= hiEnd; ++d) addDegree(sm2, d);
-                            }));
-                    } else {
-                        // Large systems: split into thirds for very large N
-                        int base = N / 3, rem = N % 3;
+                    // Apply proper degree division logic
+                    if (N > 72) {
+                        // For large tuning systems, split into thirds with remainder distribution
+                        int base = N / 3;
+                        int rem = N % 3;
                         int size1 = base + (rem > 0 ? 1 : 0);
                         int size2 = base + (rem > 1 ? 1 : 0);
-                        int s1 = 0,          e1 = size1 - 1;
-                        int s2 = e1 + 1,     e2 = e1 + size2;
-                        int s3 = e2 + 1,     e3 = N - 1;
-                        sm->addChild(rack::createSubmenuItem(
-                            rack::string::f("%d..%d", s1 + 1, e1 + 1), "",
-                            [=](rack::ui::Menu* sm2){
-                                for (int d = s1; d <= e1; ++d) addDegree(sm2, d);
+                        int s1 = 0;            int e1 = size1 - 1;
+                        int s2 = e1 + 1;       int e2 = s2 + size2 - 1;
+                        int s3 = e2 + 1;       int e3 = N - 1;
+                        
+                        smDeg->addChild(rack::createSubmenuItem(rack::string::f("%d..%d", s1, e1), "", 
+                            [m, N, getCurrentMask, setCurrentMask, getNoteName, s1, e1](rack::ui::Menu* sm2){
+                                auto mask = getCurrentMask();
+                                for (int i = s1; i <= e1; ++i) {
+                                    int deg = (i - m->rootNote + N) % N; // Rotate degrees so root appears first
+                                    int displayIndex = i - s1; // Display index relative to this submenu
+                                    std::string label = getNoteName(deg, 0, N, displayIndex); // Use 0 as root for display since we already rotated
+                                    bool enabled = (i < (int)mask.size()) ? mask[i] : false;
+                                    
+                                    sm2->addChild(rack::createCheckMenuItem(label, "", 
+                                        [enabled]{ return enabled; }, 
+                                        [i, getCurrentMask, setCurrentMask]{
+                                            auto mask = getCurrentMask();
+                                            if (i < (int)mask.size()) {
+                                                mask[i] = 1 - mask[i]; // toggle
+                                                setCurrentMask(mask);
+                                            }
+                                        }));
+                                }
                             }));
-                        sm->addChild(rack::createSubmenuItem(
-                            rack::string::f("%d..%d", s2 + 1, e2 + 1), "",
-                            [=](rack::ui::Menu* sm2){
-                                for (int d = s2; d <= e2; ++d) addDegree(sm2, d);
+                        smDeg->addChild(rack::createSubmenuItem(rack::string::f("%d..%d", s2, e2), "", 
+                            [m, N, getCurrentMask, setCurrentMask, getNoteName, s2, e2](rack::ui::Menu* sm2){
+                                auto mask = getCurrentMask();
+                                for (int i = s2; i <= e2; ++i) {
+                                    int deg = (i - m->rootNote + N) % N; // Rotate degrees so root appears first
+                                    int displayIndex = i - s2; // Display index relative to this submenu
+                                    std::string label = getNoteName(deg, 0, N, displayIndex); // Use 0 as root for display since we already rotated
+                                    bool enabled = (i < (int)mask.size()) ? mask[i] : false;
+                                    
+                                    sm2->addChild(rack::createCheckMenuItem(label, "", 
+                                        [enabled]{ return enabled; }, 
+                                        [i, getCurrentMask, setCurrentMask]{
+                                            auto mask = getCurrentMask();
+                                            if (i < (int)mask.size()) {
+                                                mask[i] = 1 - mask[i]; // toggle
+                                                setCurrentMask(mask);
+                                            }
+                                        }));
+                                }
                             }));
-                        sm->addChild(rack::createSubmenuItem(
-                            rack::string::f("%d..%d", s3 + 1, e3 + 1), "",
-                            [=](rack::ui::Menu* sm2){
-                                for (int d = s3; d <= e3; ++d) addDegree(sm2, d);
+                        smDeg->addChild(rack::createSubmenuItem(rack::string::f("%d..%d", s3, e3), "", 
+                            [m, N, getCurrentMask, setCurrentMask, getNoteName, s3, e3](rack::ui::Menu* sm2){
+                                auto mask = getCurrentMask();
+                                for (int i = s3; i <= e3; ++i) {
+                                    int deg = (i - m->rootNote + N) % N; // Rotate degrees so root appears first
+                                    int displayIndex = i - s3; // Display index relative to this submenu
+                                    std::string label = getNoteName(deg, 0, N, displayIndex); // Use 0 as root for display since we already rotated
+                                    bool enabled = (i < (int)mask.size()) ? mask[i] : false;
+                                    
+                                    sm2->addChild(rack::createCheckMenuItem(label, "", 
+                                        [enabled]{ return enabled; }, 
+                                        [i, getCurrentMask, setCurrentMask]{
+                                            auto mask = getCurrentMask();
+                                            if (i < (int)mask.size()) {
+                                                mask[i] = 1 - mask[i]; // toggle
+                                                setCurrentMask(mask);
+                                            }
+                                        }));
+                                }
+                            }));
+                    } else if (N > 36) {
+                        // For medium systems, split into halves (lower gets extra when odd)
+                        int halfLo = (N % 2 == 1) ? ((N + 1) / 2) : (N / 2);
+                        int loStart = 0;           int loEnd = halfLo - 1;
+                        int hiStart = halfLo;      int hiEnd = N - 1;
+                        
+                        smDeg->addChild(rack::createSubmenuItem(rack::string::f("%d..%d", loStart, loEnd), "", 
+                            [m, N, getCurrentMask, setCurrentMask, getNoteName, loStart, loEnd](rack::ui::Menu* sm2){
+                                auto mask = getCurrentMask();
+                                for (int i = loStart; i <= loEnd; ++i) {
+                                    int deg = (i - m->rootNote + N) % N; // Rotate degrees so root appears first
+                                    int displayIndex = i - loStart; // Display index relative to this submenu
+                                    std::string label = getNoteName(deg, 0, N, displayIndex); // Use 0 as root for display since we already rotated
+                                    bool enabled = (i < (int)mask.size()) ? mask[i] : false;
+                                    
+                                    sm2->addChild(rack::createCheckMenuItem(label, "", 
+                                        [enabled]{ return enabled; }, 
+                                        [i, getCurrentMask, setCurrentMask]{
+                                            auto mask = getCurrentMask();
+                                            if (i < (int)mask.size()) {
+                                                mask[i] = 1 - mask[i]; // toggle
+                                                setCurrentMask(mask);
+                                            }
+                                        }));
+                                }
+                            }));
+                        smDeg->addChild(rack::createSubmenuItem(rack::string::f("%d..%d", hiStart, hiEnd), "", 
+                            [m, N, getCurrentMask, setCurrentMask, getNoteName, hiStart, hiEnd](rack::ui::Menu* sm2){
+                                auto mask = getCurrentMask();
+                                for (int i = hiStart; i <= hiEnd; ++i) {
+                                    int deg = (i - m->rootNote + N) % N; // Rotate degrees so root appears first
+                                    int displayIndex = i - hiStart; // Display index relative to this submenu
+                                    std::string label = getNoteName(deg, 0, N, displayIndex); // Use 0 as root for display since we already rotated
+                                    bool enabled = (i < (int)mask.size()) ? mask[i] : false;
+                                    
+                                    sm2->addChild(rack::createCheckMenuItem(label, "", 
+                                        [enabled]{ return enabled; }, 
+                                        [i, getCurrentMask, setCurrentMask]{
+                                            auto mask = getCurrentMask();
+                                            if (i < (int)mask.size()) {
+                                                mask[i] = 1 - mask[i]; // toggle
+                                                setCurrentMask(mask);
+                                            }
+                                        }));
+                                }
+                            }));
+                    } else {
+                        // For small systems, show all degrees directly
+                        for (int i = 0; i < N; ++i) {
+                            int deg = (i - m->rootNote + N) % N; // Rotate degrees so root appears first
+                            int displayIndex = i; // Display index is just the loop index for small systems
+                            std::string label = getNoteName(deg, 0, N, displayIndex); // Use 0 as root for display since we already rotated
+                            bool enabled = (i < (int)mask.size()) ? mask[i] : false;
+                            
+                            smDeg->addChild(rack::createCheckMenuItem(label, "", 
+                                [enabled]{ return enabled; }, 
+                                [i, getCurrentMask, setCurrentMask]{
+                                    auto mask = getCurrentMask();
+                                    if (i < (int)mask.size()) {
+                                        mask[i] = 1 - mask[i]; // toggle
+                                        setCurrentMask(mask);
+                                    }
                             }));
                     }
                 }
+                }));
             }));
             
             // ═══════════════════════════════════════════════════════════════════════════════════════
-            // TET PRESETS (NON-OCTAVE) - CARLOS FAMILY
+            // TET PRESETS (NON-OCTAVE) - COMPREHENSIVE TUNING SYSTEMS
             // ═══════════════════════════════════════════════════════════════════════════════════════
             menu->addChild(rack::createSubmenuItem("TET presets (non-octave)", "", [m](rack::ui::Menu* sm){
                 // Helper function to add TET preset menu items
@@ -4867,6 +4955,10 @@ struct PolyQuantaWidget : ModuleWidget {
                 // Carlos family of non-octave temperaments
                 sm->addChild(rack::createMenuLabel("Carlos"));
                 for (const auto& t : hi::music::tets::carlos()) add(t);
+                
+                // Experimental/Modern non-octave tunings
+                sm->addChild(rack::createMenuLabel("Experimental"));
+                for (const auto& t : hi::music::tets::tetExperimental()) add(t);
             }));
             
             // ═══════════════════════════════════════════════════════════════════════════════════════

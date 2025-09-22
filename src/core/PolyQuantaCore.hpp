@@ -78,7 +78,7 @@ int pickRoundingTarget(int baseStep, float posWithinStep, int slopeDir, RoundPol
 // Quantization config and snapper supporting arbitrary period sizes (EDO/TET)
 struct QuantConfig {
 	int edo = 12; float periodOct = 1.f; int root = 0; bool useCustom = false; bool customFollowsRoot = true;
-	uint32_t customMask12 = 0xFFFu; uint32_t customMask24 = 0xFFFFFFu; int scaleIndex = 0;
+	int scaleIndex = 0;
 	const uint8_t* customMaskGeneric = nullptr; int customMaskLen = 0;
 };
 // Snap a voltage to the nearest allowed EDO/TET degree per QuantConfig.
@@ -106,9 +106,6 @@ struct CoreState {
 	int    tetSteps = 9;                 // "tetSteps"
 	float  tetPeriodOct = 0.f;           // "tetPeriodOct" (default set by module ctor; kept here for round‑trip)
 	bool   useCustomScale = false;       // "useCustomScale"
-	bool   rememberCustomScale = false;  // "rememberCustomScale"
-	uint32_t customMask12 = 0xFFFu;      // "customMask12"
-	uint32_t customMask24 = 0xFFFFFFu;   // "customMask24"
 	std::vector<uint8_t> customMaskGeneric; // "customMaskGeneric" + length key
 	// Per‑channel enable + octave shift
 	bool   qzEnabled[16] = {false};      // keys: qzEnabled1..qzEnabled16

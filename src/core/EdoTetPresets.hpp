@@ -18,10 +18,15 @@ const std::vector<int>& diatonicFavs();
 const std::vector<int>& microFamilies();
 const std::vector<int>& jiAccurate();
 const std::vector<int>& extras();
+const std::vector<int>& justIntonation();
+const std::vector<int>& historical();
+const std::vector<int>& worldMusic();
+const std::vector<int>& experimental();
 std::vector<int> allRecommended();
 }}} // namespace hi::music::edo
 
 namespace hi { namespace music { namespace tets {
 struct Tet { const char* name; int steps; float periodOct; };
 const std::vector<Tet>& carlos();
+const std::vector<Tet>& tetExperimental();
 }}} // namespace hi::music::tets

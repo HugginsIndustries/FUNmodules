@@ -18,9 +18,9 @@ This document is the single source of truth for how AI agents (Codex) should ope
 After any code edit, always:
 
 1. `make quick`
-2. `./build/core_tests`
+2. `make core_tests`
 3. Summarize change + verification results
-4. Add an entry to the changelog under the Unreleased section (CHANGELOG.md).
+4. Add an entry to the changelog under the Unreleased section (CHANGELOG.md). Put entries in the correct section, preserving the existing formatting.
 
 ---
 
@@ -38,27 +38,6 @@ $env:RACK_DIR =  $env:RACK_SDK
 ```
 
 **Never** use a container for builds in this repo. Use **Local** runner only.
-
----
-
-## 3) Environment & Tools
-
-* **OS:** Windows 10/11
-* **Shells:** PowerShell 7+ (headless) and MSYS2 `bash.exe` at `C:\msys64\usr\bin\bash.exe`
-* **Toolchain (pin paths):**
-
-  * `make` → `C:\msys64\usr\bin\make.exe`
-  * `sh`/`bash` → `C:\msys64\usr\bin\{sh,bash}.exe`
-* **Required env vars (forward slashes):**
-
-  * `RACK_SDK = C:/dev/Rack-SDK`
-  * `RACK_DIR = C:/dev/Rack-SDK`
-* **Quick checks:**
-
-  ```powershell
-  $env:RACK_SDK; $env:RACK_DIR
-  "C:\msys64\usr\bin\bash.exe" -lc "test -f C:/dev/Rack-SDK/plugin.mk && echo OK || echo MISSING"
-  ```
 
 ---
 
