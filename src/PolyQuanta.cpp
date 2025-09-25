@@ -3473,8 +3473,8 @@ struct PolyQuantaWidget : ModuleWidget {
         
         // Horizontal positioning for global controls (separated for independent adjustment)
         const float dxColShapesMM = 20.2f;                                      // Rise/Fall shape column offset from center
-        const float dxColGlobalsMM = 20.2f;                                     // Global Slew/Offset column offset from center
-        const float dxToggleMM = 9.0f;                                          // Mode toggle switch inset from global knobs
+        const float dxColGlobalsMM = 24.7f;                                     // Global Slew/Offset column offset from center
+        const float dxToggleMM = -12.4f;                                        // Mode toggle switch inset from global knobs
         // ───────────────────────────────────────────────────────────────────────────────────────
         // Per-Channel Control Grid - 8×2 Layout (16 channels total)
         // ───────────────────────────────────────────────────────────────────────────────────────

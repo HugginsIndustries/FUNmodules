@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>12-EDO to N-EDO Scale Converter</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0;
+            min-height: 600px;
+        }
+
+        .panel {
+            padding: 30px;
+            border-right: 1px solid #eee;
+        }
+
+        .panel:last-child {
+            border-right: none;
+        }
+
+        .panel-title {
+            font-size: 1.4em;
+            margin-bottom: 20px;
+            color: #333;
+            border-bottom: 2px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+
+        .input-section {
+            margin-bottom: 25px;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+        }
+
+        .btn-primary {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #45a049;
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            background: #f8f9fa;
+            color: #333;
+            border: 1px solid #ddd;
+        }
+
+        .btn-secondary:hover {
+            background: #e9ecef;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #218838;
+        }
+
+        .btn-info {
+            background: #17a2b8;
+            color: white;
+        }
+
+        .btn-info:hover {
+            background: #138496;
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .textarea {
+            width: 100%;
+            min-height: 200px;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            resize: vertical;
+            transition: border-color 0.3s ease;
+        }
+
+        .textarea:focus {
+            outline: none;
+            border-color: #4CAF50;
+        }
+
+        .textarea::placeholder {
+            color: #999;
+            font-style: italic;
+        }
+
+        .status {
+            margin-top: 10px;
+            padding: 8px 12px;
+            border-radius: 5px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .status-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .status-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status-warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        .status-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .options-section {
+            margin-bottom: 25px;
+        }
+
+        .radio-group {
+            margin-bottom: 15px;
+        }
+
+        .radio-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .radio-item input[type="radio"] {
+            margin-right: 10px;
+            transform: scale(1.2);
+        }
+
+        .radio-item label {
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        .input-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-left: 25px;
+            margin-bottom: 10px;
+        }
+
+        .input-group input {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        .input-group input:disabled {
+            background: #f8f9fa;
+            color: #6c757d;
+        }
+
+        .convert-section {
+            text-align: center;
+        }
+
+        .btn-convert {
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            color: white;
+            padding: 15px 30px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+        }
+
+        .btn-convert:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(76, 175, 80, 0.4);
+        }
+
+        .output-section {
+            display: none;
+        }
+
+        .output-section.show {
+            display: block;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: #f0f0f0;
+            border-radius: 2px;
+            overflow: hidden;
+            margin: 15px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50, #45a049);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .output-actions {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .example {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            border-left: 4px solid #4CAF50;
+        }
+
+        .example h4 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .example code {
+            background: #e9ecef;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .panel {
+                border-right: none;
+                border-bottom: 1px solid #eee;
+            }
+            
+            .panel:last-child {
+                border-bottom: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎵 Scale Converter</h1>
+            <p>Convert N-EDO scale masks to any other N-EDO(s) using closest pitch matching</p>
+        </div>
+
+        <div class="main-content">
+            <div class="panel">
+                <h2 class="panel-title">📝 Input Scales</h2>
+                
+                <div class="example">
+                    <h4>Example Format:</h4>
+                    <code>{"Chord: Major add9", {1,0,1,0,1,0,0,1,0,0,0,0}},</code><br>
+                    <code>{"Scale: Major", {1,0,1,0,1,1,0,1,0,1,0,1}},</code>
+                </div>
+
+                <div class="input-section">
+                    <div class="button-group">
+                        <button class="btn btn-secondary" onclick="loadExample()">Load Example</button>
+                        <button class="btn btn-secondary" onclick="clearInput()">Clear</button>
+                    </div>
+                    
+                    <textarea id="inputText" class="textarea" placeholder="Paste your 12-EDO scale definitions here...&#10;&#10;Format:&#10;{&quot;Chord: Major add9&quot;, {1,0,1,0,1,0,0,1,0,0,0,0}},&#10;{&quot;Scale: Major&quot;, {1,0,1,0,1,1,0,1,0,1,0,1}},"></textarea>
+                    
+                    <div id="inputStatus" class="status status-info">Ready</div>
+                </div>
+
+                <div class="options-section">
+                    <h3 style="margin-bottom: 15px; color: #333;">⚙️ Conversion Options</h3>
+                    
+                    <div class="radio-group">
+                        <div class="radio-item">
+                            <input type="radio" id="singleEDO" name="conversionType" value="single" checked onchange="updateInputStates()">
+                            <label for="singleEDO">Single EDO:</label>
+                            <div class="input-group">
+                                <input type="number" id="singleEDOValue" min="1" max="120" value="19" placeholder="19">
+                            </div>
+                        </div>
+                        
+                        <div class="radio-item">
+                            <input type="radio" id="rangeEDO" name="conversionType" value="range" onchange="updateInputStates()">
+                            <label for="rangeEDO">Range:</label>
+                            <div class="input-group">
+                                <input type="number" id="startEDO" min="1" max="120" value="13" placeholder="13" disabled>
+                                <span>to</span>
+                                <input type="number" id="endEDO" min="1" max="120" value="15" placeholder="15" disabled>
+                            </div>
+                        </div>
+                        
+                        <div class="radio-item">
+                            <input type="radio" id="multipleEDO" name="conversionType" value="multiple" onchange="updateInputStates()">
+                            <label for="multipleEDO">Multiple EDOs:</label>
+                            <div class="input-group">
+                                <input type="text" id="multipleEDOValues" placeholder="13,17,19,22" disabled>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="convert-section">
+                    <button id="convertBtn" class="btn btn-convert" onclick="convertScales()">
+                        🚀 Convert Scales
+                    </button>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2 class="panel-title">📤 Generated Output</h2>
+                
+                <div class="output-section" id="outputSection">
+                    <div class="output-actions">
+                        <button id="saveBtn" class="btn btn-success" onclick="saveOutput()" disabled>
+                            💾 Save to File
+                        </button>
+                        <button id="copyBtn" class="btn btn-info" onclick="copyOutput()" disabled>
+                            📋 Copy to Clipboard
+                        </button>
+                    </div>
+                    
+                    <div class="progress-bar" id="progressBar" style="display: none;">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    
+                    <textarea id="outputText" class="textarea" placeholder="Converted scales will appear here..." readonly></textarea>
+                    
+                    <div id="outputStatus" class="status status-info">No output yet</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentScales = [];
+
+        function updateInputStates() {
+            const singleEDO = document.getElementById('singleEDO').checked;
+            const rangeEDO = document.getElementById('rangeEDO').checked;
+            const multipleEDO = document.getElementById('multipleEDO').checked;
+
+            document.getElementById('singleEDOValue').disabled = !singleEDO;
+            document.getElementById('startEDO').disabled = !rangeEDO;
+            document.getElementById('endEDO').disabled = !rangeEDO;
+            document.getElementById('multipleEDOValues').disabled = !multipleEDO;
+        }
+
+        function loadExample() {
+            const exampleText = `{"Chord: Major add9", {1,0,1,0,1,0,0,1,0,0,0,0}},
+{"Scale: Major", {1,0,1,0,1,1,0,1,0,1,0,1}},
+{"Scale: Chromatic", {1,1,1,1,1,1,1,1,1,1,1,1}},
+{"Rast (24-EDO)", {1,0,0,0,1,0,0,1,0,0,1,0,0,0,1,0,0,0,1,0,0,1,0,0}},`;
+            
+            document.getElementById('inputText').value = exampleText;
+            updateInputStatus();
+        }
+
+        function clearInput() {
+            document.getElementById('inputText').value = '';
+            updateInputStatus();
+        }
+
+        function updateInputStatus() {
+            const text = document.getElementById('inputText').value.trim();
+            const statusEl = document.getElementById('inputStatus');
+            
+            if (!text) {
+                statusEl.textContent = 'Ready';
+                statusEl.className = 'status status-info';
+                return;
+            }
+
+            // Parse scales to count them
+            currentScales = parseScales(text);
+            
+            if (currentScales.length > 0) {
+                const sourceEDO = detectInputEDO();
+                statusEl.textContent = `${currentScales.length} scales loaded from ${sourceEDO}-EDO`;
+                statusEl.className = 'status status-success';
+            } else {
+                statusEl.textContent = 'No valid scales found';
+                statusEl.className = 'status status-warning';
+            }
+        }
+
+        function parseScales(inputText) {
+            const scales = [];
+            const lines = inputText.split('\n');
+            
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('*')) continue;
+                
+                const scale = parseScaleLine(trimmed);
+                if (scale.name && scale.mask.length > 0) {
+                    scales.push(scale);
+                }
+            }
+            
+            return scales;
+        }
+
+        function parseScaleLine(line) {
+            const commaPos = line.indexOf(',');
+            if (commaPos === -1) return { name: '', mask: [] };
+            
+            // Extract name
+            let name = line.substring(0, commaPos).trim();
+            
+            // Remove quotes
+            if (name.startsWith('"') && name.endsWith('"')) {
+                name = name.substring(1, name.length - 1);
+            }
+            
+            // Remove braces
+            while (name.startsWith('{') || name.startsWith('"')) {
+                name = name.substring(1);
+            }
+            while (name.endsWith('"')) {
+                name = name.substring(0, name.length - 1);
+            }
+            
+            // Extract mask
+            const maskStart = line.indexOf('{', commaPos);
+            const maskEnd = line.lastIndexOf('}');
+            
+            if (maskStart === -1 || maskEnd === -1 || maskStart >= maskEnd) {
+                return { name: '', mask: [] };
+            }
+            
+            const maskStr = line.substring(maskStart + 1, maskEnd);
+            const mask = maskStr.split(',').map(s => s.trim()).map(s => parseInt(s) || 0);
+            
+            return { name, mask };
+        }
+
+        function convertMask(inputMask, sourceEDO, targetEDO) {
+            const result = new Array(targetEDO).fill(0);
+            
+            // Find active pitches
+            const activePitches = [];
+            for (let i = 0; i < inputMask.length; i++) {
+                if (inputMask[i] === 1) {
+                    activePitches.push(i);
+                }
+            }
+            
+            // Map to target EDO
+            for (const pitch of activePitches) {
+                const fractionalPos = pitch / sourceEDO;
+                const closestPos = Math.round(fractionalPos * targetEDO) % targetEDO;
+                result[closestPos] = 1;
+            }
+            
+            return result;
+        }
+
+        function detectInputEDO() {
+            if (currentScales.length === 0) {
+                return 12; // Default to 12-EDO
+            }
+            return currentScales[0].mask.length;
+        }
+
+        function generateForEDO(targetEDO) {
+            const sourceEDO = detectInputEDO();
+            let result = '';
+            
+            for (let i = 0; i < currentScales.length; i++) {
+                const scale = currentScales[i];
+                const convertedMask = convertMask(scale.mask, sourceEDO, targetEDO);
+                
+                result += `{"${scale.name}", {${convertedMask.join(',')}}}`;
+                if (i < currentScales.length - 1) {
+                    result += ',\n';
+                }
+            }
+            
+            return result;
+        }
+
+        function generateForEDORange(startEDO, endEDO) {
+            const sourceEDO = detectInputEDO();
+            let result = '';
+            
+            for (let targetEDO = startEDO; targetEDO <= endEDO; targetEDO++) {
+                result += `// ${targetEDO}-EDO scales\n`;
+                result += `const int NUM_SCALES_${targetEDO}EDO = ${currentScales.length};\n`;
+                result += `static const Scale SCALES_${targetEDO}EDO[] = {\n`;
+                result += generateForEDO(targetEDO);
+                result += '\n};\n\n';
+            }
+            
+            return result;
+        }
+
+        function generateForMultipleEDOs(edosStr) {
+            const sourceEDO = detectInputEDO();
+            const edos = edosStr.split(',').map(s => parseInt(s.trim())).filter(n => n >= 1 && n <= 120);
+            let result = '';
+            
+            for (const targetEDO of edos) {
+                result += `// ${targetEDO}-EDO scales\n`;
+                result += `const int NUM_SCALES_${targetEDO}EDO = ${currentScales.length};\n`;
+                result += `static const Scale SCALES_${targetEDO}EDO[] = {\n`;
+                result += generateForEDO(targetEDO);
+                result += '\n};\n\n';
+            }
+            
+            return result;
+        }
+
+        function convertScales() {
+            if (currentScales.length === 0) {
+                alert('Please enter some valid scale definitions first.');
+                return;
+            }
+
+            const outputSection = document.getElementById('outputSection');
+            const progressBar = document.getElementById('progressBar');
+            const progressFill = document.getElementById('progressFill');
+            const convertBtn = document.getElementById('convertBtn');
+            
+            // Show progress
+            outputSection.classList.add('show');
+            progressBar.style.display = 'block';
+            progressFill.style.width = '0%';
+            convertBtn.disabled = true;
+            
+            // Simulate progress
+            let progress = 0;
+            const progressInterval = setInterval(() => {
+                progress += Math.random() * 20;
+                if (progress > 90) progress = 90;
+                progressFill.style.width = progress + '%';
+            }, 100);
+            
+            setTimeout(() => {
+                clearInterval(progressInterval);
+                progressFill.style.width = '100%';
+                
+                setTimeout(() => {
+                    try {
+                        let result = '';
+                        let statusText = '';
+                        
+                        const singleEDO = document.getElementById('singleEDO').checked;
+                        const rangeEDO = document.getElementById('rangeEDO').checked;
+                        const multipleEDO = document.getElementById('multipleEDO').checked;
+                        
+                        const sourceEDO = detectInputEDO();
+                        
+                        if (singleEDO) {
+                            const targetEDO = parseInt(document.getElementById('singleEDOValue').value);
+                            if (targetEDO < 1 || targetEDO > 120) {
+                                throw new Error('EDO must be between 1 and 120');
+                            }
+                            result = generateForEDO(targetEDO);
+                            statusText = `Converted from ${sourceEDO}-EDO to ${targetEDO}-EDO`;
+                        } else if (rangeEDO) {
+                            const startEDO = parseInt(document.getElementById('startEDO').value);
+                            const endEDO = parseInt(document.getElementById('endEDO').value);
+                            if (startEDO > endEDO) {
+                                throw new Error('Start EDO must be less than or equal to end EDO');
+                            }
+                            result = generateForEDORange(startEDO, endEDO);
+                            statusText = `Converted from ${sourceEDO}-EDO to range ${startEDO}-${endEDO}-EDO`;
+                        } else if (multipleEDO) {
+                            const edosStr = document.getElementById('multipleEDOValues').value;
+                            if (!edosStr.trim()) {
+                                throw new Error('Please enter EDO values for multiple conversion');
+                            }
+                            result = generateForMultipleEDOs(edosStr);
+                            const edos = edosStr.split(',').length;
+                            statusText = `Converted from ${sourceEDO}-EDO to ${edos} target EDOs`;
+                        }
+                        
+                        document.getElementById('outputText').value = result;
+                        document.getElementById('outputStatus').textContent = statusText;
+                        document.getElementById('outputStatus').className = 'status status-success';
+                        document.getElementById('saveBtn').disabled = false;
+                        document.getElementById('copyBtn').disabled = false;
+                        
+                    } catch (error) {
+                        document.getElementById('outputStatus').textContent = `Error: ${error.message}`;
+                        document.getElementById('outputStatus').className = 'status status-error';
+                    }
+                    
+                    progressBar.style.display = 'none';
+                    convertBtn.disabled = false;
+                }, 200);
+            }, 800);
+        }
+
+        function saveOutput() {
+            const outputText = document.getElementById('outputText').value;
+            if (!outputText) return;
+            
+            const blob = new Blob([outputText], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'converted_scales.txt';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            document.getElementById('outputStatus').textContent = 'Saved to file';
+            document.getElementById('outputStatus').className = 'status status-success';
+        }
+
+        function copyOutput() {
+            const outputText = document.getElementById('outputText');
+            outputText.select();
+            document.execCommand('copy');
+            
+            document.getElementById('outputStatus').textContent = 'Copied to clipboard';
+            document.getElementById('outputStatus').className = 'status status-success';
+            
+            setTimeout(() => {
+                document.getElementById('outputStatus').textContent = 'Ready to copy again';
+                document.getElementById('outputStatus').className = 'status status-info';
+            }, 2000);
+        }
+
+        // Initialize
+        document.getElementById('inputText').addEventListener('input', updateInputStatus);
+        updateInputStates();
+        updateInputStatus();
+    </script>
+</body>
+</html>
