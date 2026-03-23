@@ -2,7 +2,6 @@
 
 Experimental (but musical!) modules for VCV Rack 2. Have **FUN** 🙂
 
-
 ## Contents
 
 * [Modules](#modules)
@@ -12,6 +11,7 @@ Experimental (but musical!) modules for VCV Rack 2. Have **FUN** 🙂
 * [Changelog](#changelog)
 * [Requirements](#requirements)
 * [Quick start (Windows / MSYS2)](#quick-start-windows--msys2)
+* [Quick start (Linux)](#quick-start-linux)
 * [Build & run with Windsurf/VS Code](#build--run-with-windsurfvs-code)
 * [Build from the terminal](#build-from-the-terminal)
 * [Unit tests](#unit-tests)
@@ -53,7 +53,7 @@ A **16-channel polyphonic Swiss-army quantizer**. Add controllable portamento, s
 
 **WIP features**
 
-* Add more scales for EDO/TET 
+* Add more scales for EDO/TET
   
   * Add more built-in scales for non-12 EDOs
   * Add more TET tunings
@@ -61,7 +61,7 @@ A **16-channel polyphonic Swiss-army quantizer**. Add controllable portamento, s
 * Signal chain control per channel (with batch settings)
 * Mix inputs to multiple outputs (randomization?)
 * CV input to multiple parameters (polyphonic?)
-* Quantizer: 
+* Quantizer:
 
   * Glissando mode (scale based & chromatic tuning options)
   * Vibrato mode (with Hz and cents range settings)
@@ -83,18 +83,18 @@ See **[CHANGELOG.md](CHANGELOG.md)** for release history and upcoming changes.
 
 ## Requirements
 
-* **VCV Rack 2 SDK** (unzip somewhere simple, e.g. `C:\dev\Rack-SDK`)
-* **Windows 10/11 + MSYS2** with the **MINGW64** toolchain:
+* **VCV Rack 2 SDK** (unzip somewhere simple)
+* **Git** (any recent version is fine)
 
-  ```bash
-  # in MSYS2 shell (MSYS2 MinGW 64-bit)
-  pacman -S --needed base-devel make zip unzip jq mingw-w64-x86_64-toolchain
-  ```
-* **Git** (MSYS2 includes one; any recent Git is fine)
+**Windows:** MSYS2 with the **MINGW64** toolchain. **Linux:** `gcc`/`g++`, `make`, `jq`, `zip`, `unzip` (tested on Arch-based distros; other distros may need equivalent packages).
 
 ## Quick start (Windows / MSYS2)
 
-1. **Open an *MSYS2 MinGW 64-bit* shell**.
+1. **Install deps** (in an MSYS2 MinGW 64-bit shell):
+
+   ```bash
+   pacman -S --needed base-devel make zip unzip jq mingw-w64-x86_64-toolchain
+   ```
 
 2. **Clone the repo**:
 
@@ -119,6 +119,51 @@ See **[CHANGELOG.md](CHANGELOG.md)** for release history and upcoming changes.
 
 5. Launch Rack and enjoy 🎛️
 
+## Quick start (Linux)
+
+*Linux build has only been tested on Arch-based distros (e.g. Arch, CachyOS).*
+
+1. **Install deps** (Arch / pacman):
+
+   ```bash
+   sudo pacman -S --needed base-devel jq zip unzip git
+   ```
+
+2. **Download & extract the Rack SDK** (use [vcvrack.com/downloads](https://vcvrack.com/downloads) for the current version):
+
+   ```bash
+   mkdir -p ~/dev
+   cd ~/dev
+   curl -L -o rack-sdk.zip "https://vcvrack.com/downloads/Rack-SDK-2.6.4-lin-x64.zip"
+   unzip rack-sdk.zip
+   # Adjust path below if your SDK extracted elsewhere
+   ```
+
+3. **Clone the repo**:
+
+   ```bash
+   git clone https://github.com/HugginsIndustries/FUNmodules.git
+   cd FUNmodules
+   ```
+
+4. **Point builds at the Rack SDK** (use **absolute paths**—`~` is not expanded by Make):
+
+   ```bash
+   export RACK_DIR=/home/YOURNAME/dev/Rack-SDK
+   export RACK_SDK=/home/YOURNAME/dev/Rack-SDK
+   ```
+
+   Or create a `.env` in the repo root with those lines (source it or use a dotenv-capable shell).
+
+5. **Build & install**:
+
+   ```bash
+   make -j"$(nproc)"
+   make install RACK_USER_DIR="$HOME/.local/share/Rack2"
+   ```
+
+6. Launch Rack and enjoy 🎛️
+
 ## Build & run with Windsurf/VS Code
 
 This repo ships **tasks** that work even in “assistant” mode (no direct Task API), and also give you a nice **Ctrl + Shift + B** workflow.
@@ -126,26 +171,30 @@ This repo ships **tasks** that work even in “assistant” mode (no direct Task
 * **Default (Ctrl + Shift + B):** `Clean → Build & Install`
 * **Other tasks:** `Build`, `Install`, `Clean`, `Quick`, `Build (core tests)`
 
-> The tasks run in an integrated shell and inherit the right MSYS2 environment.
-> Set `RACK_DIR`/`RACK_SDK` once per session if not already set (see Quick start).
+> The tasks run in an integrated shell and inherit the environment. Set `RACK_DIR`/`RACK_SDK` once per session if not already set (see Quick start). On Windows, use an MSYS2 shell.
 
 ## Build from the terminal
 
-If you prefer the command line (or you’re in a CI/assistant context), these are the same commands our tasks use:
+If you prefer the command line (or you’re in a CI/assistant context), use the commands below:
+
+**Windows (MSYS2 MinGW 64-bit shell):**
 
 ```bash
-# in MSYS2 MinGW 64-bit shell, from the repo root
 export RACK_DIR=/c/dev/Rack-SDK
 export RACK_SDK=/c/dev/Rack-SDK
-
-# build
 make -j"$(nproc)"
-
-# install to your Rack user folder
 make install RACK_USER_DIR="/c/Users/<YOURNAME>/AppData/Local/Rack2"
+make clean   # optional
+```
 
-# clean (optional)
-make clean
+**Linux:**
+
+```bash
+export RACK_DIR=/home/YOURNAME/dev/Rack-SDK   # use absolute path (no ~)
+export RACK_SDK=/home/YOURNAME/dev/Rack-SDK
+make -j"$(nproc)"
+make install RACK_USER_DIR="$HOME/.local/share/Rack2"
+make clean   # optional
 ```
 
 ## Unit tests
@@ -178,7 +227,7 @@ You should see `All core tests passed.` on success.
 
 ## Project layout
 
-```
+```text
 src/
   core/                // DSP, scales, tests support
     ui/                // module panels & widgets
